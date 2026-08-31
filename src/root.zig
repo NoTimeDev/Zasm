@@ -1,42 +1,108 @@
+const builtin = @import("builtin");
 const std = @import("std");
+const registers = @import("register.zig");
+const bits = @import("bits.zig");
 const ArrayList = std.ArrayList;
-const Instructions = @import("instructions.zig");
 
+pub const Instructions = @import("instructions.zig");
 pub const AsmError = @import("errors.zig").AsmError;
-pub const Emitter = @import("emitter/emitter.zig");
-pub const Register = @import("emitter/register.zig").Register;
-pub const Memory = Emitter.Memory;
+pub const Register = @import("register.zig").Register;
 pub const Jcc = Instructions.Jcc;
 pub const Setcc = Instructions.Setcc;
 
+/// Struct used to describe memory accses eg. `inst op, *[...]*`
+pub const Memory = struct {
+    base: ?registers.Register = null,
+    index: ?registers.Register = null,
+    scale: u8 = 0, 
+    displacement: i32 = 0,
+    size: u8,
+};
 
-/// Patch Kind 
-/// Label is used for jmps, e.g `jmp .cond`
-/// AbsLabel is used when you want to write the address of .cond 
-/// into a register e.g `mov rax, .cond`
-const Patch = union(enum){
-    label: struct {
-        pos: usize,
-        label_id: usize
-    },
-    abs_label: struct {
-        pos: usize,
-        label_id: usize
+pub const scale1: u8 = 0b00;
+pub const scale2: u8 = 0b01;
+pub const scale4: u8 = 0b10;
+pub const scale8: u8 = 0b11;
+
+/// The Data the asm operators act upon 
+pub const Operand = union(enum){
+    Register: registers.Register,
+    Immediate: i64,
+    Memory: Memory,
+    
+    fn get_size(self: *const Operand) u8{
+        if(self.* == .Register){return self.Register.size;}
+        else if(self.* == .Immediate){
+            const x = self.Immediate;
+            if (@as(i64, -128) <= x and x <= 127)
+                return 1;
+
+            if (@as(i64, -32768) <= x and x <= 32767)
+                return 2;
+
+            if (@as(i64, -2147483648) <= x and x <= 2147483647)
+                return 4;
+
+            return 8;
+        }else{
+            return self.Memory.size;
+        }
     }
 };
 
-/// Operands 
-pub const Operand = union(enum){
-    Register: Register,
-    Immediate: i64,
-    Memory: Memory,
-    // label id!
-    Offset: usize,
+/// Used to represent the operand data 
+pub const OperandKind = enum {
+    reg, 
+    rm,
+    imm,
+    mem,
+
+    xmm,
+    xmm_m,
 };
 
+// Encoding for Rex 
+pub const RexSpec = struct {
+    r: ?u4 = null, 
+    b: ?u4 = null
+};
 
+/// Field for modr 
+pub const ModrField = union(enum){
+    operand: u8,
+    fixed: u3,
+    none,
+};
 
-/// A Function struct which hold the excutable code
+/// Encoding for modr
+pub const ModrSpec = struct {
+    reg: ModrField = .none, 
+    rm: ModrField = .none,
+};
+
+/// Encoding for opcode 
+pub const OpCode = struct {
+    s64: ?[]const u8 = null,
+    s32: ?[]const u8 = null,
+    s16: ?[]const u8 = null,
+    s8: ?[]const u8 = null,
+    other: ?[]const u8 = null,
+};
+
+/// An encoding for a specific instructions operand group(8 bit && 16-64 bit)
+/// eg `mov reg/mem, reg`
+pub const Encoding = struct {
+    prefix: ?u8 = null,
+    opcode: OpCode,
+    operands: []const OperandKind,
+    rex: ?RexSpec = null,
+    modr: ?ModrSpec = null,
+    imm_max: u8 = 8,
+    imm_min: u8 = 1,
+    rex64: bool = true,
+    size: ?u8 = null,
+};
+
 pub const Function = struct{
     code: []u8,
     len: usize,
@@ -74,31 +140,312 @@ pub const Function = struct{
     }
 
 };
+/// Patch Kind 
+/// Label is used for jmps, e.g `jmp .cond`
+/// AbsLabel is used when you want to write the address of .cond 
+/// into a register e.g `mov rax, .cond`
+const Patch = union(enum){
+    label: struct {
+        pos: usize,
+        label_id: usize,
+    },
+    abs_label: struct {
+        pos: usize,
+        label_id: usize
+    }
+};
 
-
-/// An x86_64 assembler
-/// This is a wrapper over the x86_64 emitter
-/// To make writing code simpler
-pub const Assembler = struct {
-    allocator: std.mem.Allocator,
-    emitter:  Emitter.Emitter,
+/// This is a structure used to emit instructions based on the provided info 
+pub const Emitter = struct{
+    allocator: std.mem.Allocator, 
+    bytes: ArrayList(u8),
     patches: ArrayList(Patch),
     labels: std.AutoHashMap(usize, usize),
     lab_id: usize = 0,
+    next: usize = 0, 
 
-    /// Creates a new Assembler
-    pub fn init(allocator: std.mem.Allocator) Assembler{
+    pub fn init(allocator: std.mem.Allocator) Emitter{
         return .{
             .allocator = allocator,
-            .emitter = .init(allocator),
+            .bytes = .empty, 
             .patches = .empty,
-            .labels = .init(allocator),
+            .labels = .init(allocator)
         };
+    }
+    
+    fn verifymem(mem: Memory) !void{
+        if(mem.base)|base|{
+            if(base.class != .gpr){return AsmError.NonGPRInMem;}
+        }
+        if(mem.index)|index|{
+            if(index.class != .gpr){return AsmError.NonGPRInMem;}
+        }
+    }
+    ///Matches operands againts encodings and verify's Memory struct 
+    fn match(encoding: []const OperandKind, operands: []const Operand) !bool{
+        if(encoding.len != operands.len){return false;}
+        for(encoding, operands)|opk, op|{
+            if(opk == .reg and op != .Register){return false;}
+            else if(opk == .imm and op != .Immediate){return false;}
+            else if(opk == .mem and op != .Memory){return false;}
+            else if(opk == .rm and (op != .Register and op != .Memory)){return false;}
+            else if(opk == .xmm){
+                if(op != .Register){
+                    return false;
+                }
+                if(op.Register.class != .xmm){return false;}
+            }
+            else if(opk == .xmm_m){
+                if(op != .Register and op != .Memory){
+                    return false;
+                }
+                if(op == .Register and op.Register.class != .xmm){return false;}
+            }else{
+                if(op == .Memory){try verifymem(op.Memory);}
+            }
+        }
+        return true;
+    }
+   
+    fn emitencoding(self: *Emitter, encoding: Encoding, operands: []const Operand) !void{
+        if(operands.len == 0){
+            try self.bytes.appendSlice(self.allocator, encoding.opcode.other.?);
+            return;
+        }
+
+        if(encoding.prefix)|prefix|{
+            try self.bytes.append(self.allocator, prefix);
+        }
+        var rex_w: u1 = 0;
+        var rex_r: u1 = 0;
+        var rex_x: u1 = 0;
+        var rex_b: u1 = 0;
+        if(encoding.rex)|rex|{
+            if(rex.r)|r|{
+                if(operands[r] == .Register){
+                    rex_r = @intFromBool(operands[r].Register.rex);   
+                }
+            }
+            if(rex.b)|b|{
+                if(operands[b] == .Register){
+                    rex_b = @intFromBool(operands[b].Register.rex);   
+                }
+                if(operands[b] == .Memory){
+                    rex_b = if(operands[b].Memory.base)|base|
+                        @intFromBool(base.rex)
+                    else 
+                        0;
+                }
+            }
+        }
+        const size = if(encoding.size)|size| size else operands[0].get_size(); 
+        rex_w = if(size == 8 and encoding.rex64) 1 else 0;
+        rex_x = 0;
+        if(encoding.modr)|modr|{
+            if(modr.rm == .operand and operands[modr.rm.operand] == .Memory and operands[modr.rm.operand].Memory.index != null){
+                rex_x = @intFromBool(operands[modr.rm.operand].Memory.index.?.rex);
+            }
+        }
+        if(size == 2){
+            try self.bytes.append(self.allocator, 0x66);
+        }
+        if(rex_w == 1 or rex_r == 1 or rex_x == 1 or rex_b == 1){
+            try self.bytes.append(self.allocator, bits.create_rex(rex_w, rex_r, rex_x, rex_b));
+        }else if(size == 1){
+            for(operands)|op|{
+                if(op == .Register and op.Register.encoding >= 4){
+                    try self.bytes.append(self.allocator, bits.create_rex(rex_w, rex_r, rex_x, rex_b));
+                }
+            }
+        }
+
+        var opcode: []const u8 = undefined;
+        if(size == 8 and encoding.opcode.s64 != null){
+            opcode = encoding.opcode.s64.?;
+        }else if(size == 4 and encoding.opcode.s32 != null){
+            opcode = encoding.opcode.s32.?;
+        }else if(size == 2 and encoding.opcode.s16 != null){
+            opcode = encoding.opcode.s16.?;
+        }else if(size == 1 and encoding.opcode.s8 != null){
+            opcode = encoding.opcode.s8.?;
+        }else{
+            opcode = encoding.opcode.other.?;
+        }
+
+        
+        if(encoding.modr)|modr|{
+            if(modr.rm == .none){
+                var last = opcode[opcode.len-1];
+                if(modr.reg == .operand){
+                    const reg = operands[modr.reg.operand].Register.encoding;
+                    bits.setBit(&last, 2, bits.getBit(reg, 2));
+                    bits.setBit(&last, 1, bits.getBit(reg, 1));
+                    bits.setBit(&last, 0, bits.getBit(reg, 0));
+
+                    try self.bytes.appendSlice(self.allocator, opcode[0..opcode.len-1]);
+                    try self.bytes.append(self.allocator, last);
+                }else{
+                    try self.bytes.appendSlice(self.allocator, opcode);
+                }
+            }else{
+                try self.bytes.appendSlice(self.allocator, opcode);
+                var modr_bits: u8 = 0;
+                const reg = if(modr.reg == .operand)
+                    operands[modr.reg.operand].Register.encoding
+                else if (modr.reg == .none)
+                    0
+                else
+                    @as(u8, modr.reg.fixed);
+                
+                const rm = if(modr.rm == .operand)
+                    if(operands[modr.rm.operand] == .Register) 
+                        operands[modr.rm.operand].Register.encoding
+                    else if(operands[modr.rm.operand] == .Memory)
+                        if(operands[modr.rm.operand].Memory.base)|base| base.encoding else 0b00000100
+                    else 
+                        0
+                else
+                    @as(u8, modr.rm.fixed);
+               
+                // Fix this and rex.x
+                var sibreq: bool = false;
+                if(modr.rm == .operand){
+                    //const op_reg = operands[modr.reg.operand];
+                    const op_rm = operands[modr.rm.operand];
+                    if(op_rm == .Memory){
+                        if(op_rm.Memory.index != null or 
+                            (op_rm.Memory.base != null and 
+                             (op_rm.Memory.base.?.encoding == registers.Register.rsp.encoding)
+                            )
+                        ){
+                            sibreq = true;
+                        }
+                        if(op_rm.Memory.base == null or op_rm.Memory.displacement == 0 and (op_rm.Memory.base != null and op_rm.Memory.base.?.encoding != registers.Register.rbp.encoding)){
+                            bits.setBit(&modr_bits, 7, 0);
+                            bits.setBit(&modr_bits, 6, 0);
+                        }else if(std.math.cast(i8, op_rm.Memory.displacement) != null or (op_rm.Memory.base != null and op_rm.Memory.displacement == 0 and op_rm.Memory.base.?.encoding == registers.Register.rbp.encoding)){
+                            bits.setBit(&modr_bits, 7, 0);
+                            bits.setBit(&modr_bits, 6, 1);
+                        }else{
+                            bits.setBit(&modr_bits, 7, 1);
+                            bits.setBit(&modr_bits, 6, 0);
+                        }
+                   }else{
+                        bits.setBit(&modr_bits, 7, 1);
+                        bits.setBit(&modr_bits, 6, 1);
+                    }
+                }else{
+                    bits.setBit(&modr_bits, 7, 1);
+                    bits.setBit(&modr_bits, 6, 1);
+                }
+               
+                bits.setBit(&modr_bits, 5, bits.getBit(reg, 2));
+                bits.setBit(&modr_bits, 4, bits.getBit(reg, 1));
+                bits.setBit(&modr_bits, 3, bits.getBit(reg, 0));
+
+                if(sibreq){
+                    bits.setBit(&modr_bits, 2, 1);
+                    bits.setBit(&modr_bits, 1, 0);
+                    bits.setBit(&modr_bits, 0, 0);
+                }else{
+                    bits.setBit(&modr_bits, 2, bits.getBit(rm, 2));
+                    bits.setBit(&modr_bits, 1, bits.getBit(rm, 1));
+                    bits.setBit(&modr_bits, 0, bits.getBit(rm, 0));
+                }
+                try self.bytes.append(self.allocator, modr_bits);
+            }
+        }
+
+        for(operands)|operand|{
+            switch(operand){
+                .Memory => |mem|{
+                    if(mem.index != null or 
+                        (mem.base != null and 
+                         (mem.base.?.encoding == registers.Register.rsp.encoding)
+                        )
+                    ){
+                        var sib: u8 = 0;
+                        bits.setBit(&sib, 7, bits.getBit(mem.scale, 1));
+                        bits.setBit(&sib, 6, bits.getBit(mem.scale, 0));
+
+                        if(mem.index)|index|{
+                            bits.setBit(&sib, 5, bits.getBit(index.encoding, 2));
+                            bits.setBit(&sib, 4, bits.getBit(index.encoding, 1));
+                            bits.setBit(&sib, 3, bits.getBit(index.encoding, 0));
+                        }else{
+                            bits.setBit(&sib, 5, 1);
+                            bits.setBit(&sib, 4, 0);
+                            bits.setBit(&sib, 3, 0);
+                        }
+
+                        if(mem.base)|base|{
+                            bits.setBit(&sib, 2, bits.getBit(base.encoding, 2));
+                            bits.setBit(&sib, 1, bits.getBit(base.encoding, 1));
+                            bits.setBit(&sib, 0, bits.getBit(base.encoding, 0));
+                        }else{
+                            bits.setBit(&sib, 2, 1);
+                            bits.setBit(&sib, 1, 0);
+                            bits.setBit(&sib, 0, 1);
+                        }
+                        try self.bytes.append(self.allocator, sib);
+                    }
+                    if(mem.displacement >= 0 and mem.base == null){
+                        for (std.mem.asBytes(&@as(i32, 0)))|byte|{
+                            try self.bytes.append(self.allocator, byte);
+                        }
+                    }else if(mem.displacement != 0 or (mem.base != null and mem.base.?.encoding == registers.Register.rbp.encoding)){
+                        if(std.math.cast(i8, mem.displacement))|v|{
+                            try self.bytes.append(self.allocator, @bitCast(v));
+                        }else{
+                            for (std.mem.asBytes(&mem.displacement))|byte|{
+                                try self.bytes.append(self.allocator, byte);
+                            }
+                        }
+                    }
+                },
+                .Immediate => |imm|{
+                    for (std.mem.asBytes(&imm)[0..@max(encoding.imm_min, @min(size, encoding.imm_max))])|byte|{
+                        try self.bytes.append(self.allocator, byte);
+                    }
+                },
+                else => {}
+            }
+        }
+    }
+
+
+    
+    /// Creates a new label and returns the id 
+    /// You will not be able to jump to this unless you call `.bind()`
+    pub fn new_label(self: *Emitter) usize{
+        self.lab_id+=1;
+        return self.lab_id-1;
+    }
+
+    /// Takes in a label id and binds it to the current position
+    pub fn bind(self: *Emitter, label: usize) !void{
+        try self.labels.put(label, self.bytes.items.len);
+    }
+
+    /// Patches previous 8 bytes with the abs position to an offset 
+    pub fn patch_abs(self: *Emitter, id: usize) !void{
+        try self.patches.append(self.allocator, .{ .abs_label = .{ 
+            .label_id = id,
+            .pos = self.bytes.items.len-8
+        }});
+    }
+
+    /// Pacthes previous 4 bytes with a rel32, Must be below the instruction to be patched 
+    pub fn patch_rel(self: *Emitter, id: usize) !void{
+        try self.patches.append(self.allocator, .{ .label = .{ 
+            .label_id = id,
+            .pos = self.bytes.items.len,
+        }});
     }
 
     /// Creates a function from the bytes in the emitter struct
-    fn createfunc(self: *Assembler) !Function{
-        const size = std.mem.alignForward(usize, self.emitter.bytes.items.len, std.heap.pageSize());
+    fn createfunc(self: *Emitter) !Function{
+        const size = std.mem.alignForward(usize, self.bytes.items.len, std.heap.pageSize());
         var ptr = try std.posix.mmap(
             null, 
             size, 
@@ -107,16 +454,16 @@ pub const Assembler = struct {
             -1, 
             0
         );
-        @memcpy(ptr[0..self.emitter.bytes.items.len], self.emitter.bytes.items);
+        @memcpy(ptr[0..self.bytes.items.len], self.bytes.items);
         for(self.patches.items)|patch|{
             switch(patch){
                 .label => |label|{
-                    const call_offset = &ptr[label.pos];
-                    const abs: usize = @intCast(@intFromPtr(&ptr[self.labels.get(label.label_id).?]));
-                    const offset: i64 = @as(i64, @intCast(abs)) - @as(i64, @intCast(@intFromPtr(call_offset) + 5));
+                    const next = @intFromPtr(&ptr[label.pos]);
+                    const target: usize = @intCast(@intFromPtr(&ptr[self.labels.get(label.label_id).?]));
+                    const offset: i64 = @as(i64, @intCast(target)) - @as(i64, @intCast(next));
                     if(std.math.cast(i32, offset))|posoff|{
                         for(std.mem.asBytes(&posoff), 0..)|byte, i|{
-                            ptr[patch.label.pos+i+1] = byte;
+                            ptr[patch.label.pos+i-4] = byte;
                         }
                     }else{
                         return AsmError.RelOutOfRange;
@@ -133,301 +480,70 @@ pub const Assembler = struct {
         if(std.os.linux.mprotect(ptr.ptr, size, .{.READ = true, .EXEC = true}) != 0){
             return AsmError.MprotectFailed;
         }
-        const len = self.emitter.bytes.items.len; 
+        const len = self.bytes.items.len; 
         return Function.init(ptr, len);
     }
-
     /// Returns a Function, this clears the current bytes and binded labels 
-    pub fn takefunc(self: *Assembler) !Function{
-        if(self.emitter.bytes.items.len == 0){
-            try self.emitter.bytes.append(self.allocator, 0xc3);
+    pub fn takefunc(self: *Emitter) !Function{
+        if(self.bytes.items.len == 0){
+            try self.bytes.append(self.allocator, 0xc3);
         }
         const func = try self.createfunc();
-        self.emitter.bytes.clearRetainingCapacity();
+        
+        self.bytes.clearRetainingCapacity();
         self.patches.clearRetainingCapacity();
-        self.lab_id = 0;
         self.labels.clearRetainingCapacity();
+        
+        self.lab_id = 0;
         return func; 
     }
 
-    /// Frees the data structures used by the Assembler
-    pub fn deinit(self: *Assembler) void{
-        self.emitter.deinit();
+    /// Emits an instructions
+    pub fn emit(self: *Emitter, encodings: []const Encoding,  operands: []const Operand) !void {
+        const start = self.bytes.items.len;
+        for(encodings)|encoding|{
+            if(try Emitter.match(encoding.operands, operands)){
+                try self.emitencoding(encoding, operands);
+                return;
+            }
+        }
+        self.next = self.bytes.items.len - start;
+        return AsmError.OperandMisMatch;
+    }
+    
+    pub fn deinit(self: *Emitter) void{
+        self.bytes.deinit(self.allocator);
         self.labels.deinit();
         self.patches.deinit(self.allocator);
     }
-
-    /// Creates a new label and returns the id 
-    /// You will not be able to jump to this unless you call `.bind()`
-    pub fn new_label(self: *Assembler) usize{
-        self.lab_id+=1;
-        return self.lab_id-1;
-    }
-    
-   
-    /// Converts the Assembler operands to the Emitter operands
-    fn from(operands :[]const Operand, eoperands: []Emitter.Operand) void {
-        for(operands, 0..operands.len)|op, indx|{
-            switch (op){
-                .Immediate => |imm|{
-                    eoperands[indx] = .{.Immediate = imm}; 
-                },
-                .Memory => |mem|{
-                    eoperands[indx] = .{.Memory = mem}; 
-                },
-                .Register => |reg|{
-                    eoperands[indx] = .{.Register = reg}; 
-                },
-                .Offset => {
-                    eoperands[indx] = .{.Immediate = 0}; 
-                },
-            }
-        }
-    }
-
-    /// Takes in a label id and binds it to the current position
-    pub fn bind(self: *Assembler, label: usize) !void{
-        try self.labels.put(label, self.emitter.bytes.items.len);
-    }
-
-    /// Jumps to a position via register or label id 
-    pub fn jmp(self: *Assembler, src: Operand) !void{
-        var ops: [1]Emitter.Operand = undefined;
-        if(src == .Offset){
-            try self.patches.append(self.allocator, .{ .label = .{ 
-                .label_id = src.Offset,
-                .pos = self.emitter.bytes.items.len
-            }});
-            Assembler.from(
-                &[_]Operand{
-                    .{. Immediate = 0},
-                },
-                &ops,
-            );
-        }else {
-            Assembler.from(
-                &[_]Operand{
-                    src
-                },
-                &ops,
-            );
-        }
-        try self.emitter.emit(Instructions.jmp, &ops);  
-    }
-
-    /// Calls a block of code via register or label id 
-    pub fn call(self: *Assembler, src: Operand) !void{
-        var ops: [1]Emitter.Operand = undefined;
-        if(src == .Offset){
-            try self.patches.append(self.allocator, .{ .label = .{ 
-                .label_id = src.Offset,
-                .pos = self.emitter.bytes.items.len
-            }});
-            Assembler.from(
-                &[_]Operand{
-                    .{. Immediate = 0},
-                },
-                &ops,
-            );
-        }else {
-            Assembler.from(
-                &[_]Operand{
-                    src
-                },
-                &ops,
-            );
-        }
-        try self.emitter.emit(Instructions.call, &ops);
-        
-    }
-
-    /// Moves a value into a register or into memory
-    pub fn mov(self: *Assembler, dest: Operand, src: Operand) !void{
-        if(dest == .Immediate){return AsmError.SizeMisMatch;}
-        var nsrc: Operand = src;
-        if(src == .Offset){
-            nsrc = .{ .Immediate = 0 };
-        }
-        var ops: [2]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                dest,
-                nsrc
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.mov, &ops);
-        if(src == .Offset){
-            try self.patches.append(self.allocator, .{ .abs_label = .{ 
-                .label_id = src.Offset,
-                .pos = self.emitter.bytes.items.len-8
-            }});
-        }
-    }
-
-    /// Adds a two values and stores it in dest 
-    pub fn add(self: *Assembler, dest: Operand, src: Operand) !void{
-        if(dest == .Immediate){return AsmError.SizeMisMatch;}
-        var ops: [2]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                dest,
-                src
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.add, &ops);
-    }
-    
-    /// Compares two operands
-    pub fn cmp(self: *Assembler, dest: Operand, src: Operand) !void{
-        if(dest == .Immediate){return AsmError.SizeMisMatch;}
-        var ops: [2]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                dest,
-                src
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.cmp, &ops);
-    }
-
-    /// Subtarcts src from dest
-    pub fn sub(self: *Assembler, dest: Operand, src: Operand) !void{
-        if(dest == .Immediate){return AsmError.SizeMisMatch;}
-        var ops: [2]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                dest,
-                src
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.sub, &ops);
-    }
-
-    /// Pushes an operand
-    pub fn push(self: *Assembler, src: Operand) !void{
-        if(src == .Offset){return AsmError.OperandMisMatch;}
-        var ops: [1]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                src
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.push, &ops);
-    }
-
-    /// Pops a value into the operand
-    pub fn pop(self: *Assembler, src: Operand) !void{
-        if(src != .Memory and src != .Register){return AsmError.OperandMisMatch;}
-        var ops: [1]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                src
-            },
-            &ops, 
-        );
-        try self.emitter.emit(Instructions.pop, &ops);
-    }
-    
-    /// Jumps conditionally expects a condition
-    /// You Can find these conditions in `Jcc` 
-    pub fn jcc(self: *Assembler, condition: u8, to: usize) !void {
-        try self.patches.append(self.allocator, .{ .label = .{ 
-            .label_id = to,
-            .pos = self.emitter.bytes.items.len+1
-        }});
-        try self.emitter.emit(Instructions.generate_jcc(condition), &.{ .{.Immediate = 0} });  
-    }
-
-    /// Takes in at max 3 operands 
-    /// This does not support imul reg rm imm8
-    /// You will have to do that manually
-    pub fn imul(self: *Assembler, operand: []const Operand) !void{
-        const ops: []Emitter.Operand = try self.allocator.alloc(Emitter.Operand, operand.len);
-        Assembler.from(operand, ops);
-        try self.emitter.emit(Instructions.imul, ops);
-        self.allocator.free(ops);
-    }
-
-    /// Sets the Operand to a value based on if a condition is true  
-    /// You can find these conditions in 'Setcc' 
-    pub fn setcc(self: *Assembler, condition: u8, src: Operand) !void{
-        var ops: [1]Emitter.Operand = undefined;
-        Assembler.from(
-            &[_]Operand{
-                src
-            },
-            &ops,
-        );
-        try self.emitter.emit(Instructions.generate_setcc(condition), &ops);
-    }
-
-    /// Loads an effective address idk what else to say man! 
-    pub fn lea(self: *Assembler, dest: Register, src: Memory) !void{
-        const ops: [2]Emitter.Operand = .{ .{.Register = dest}, .{.Memory = src} };
-        try self.emitter.emit(Instructions.lea, &ops);
-    }
-
-
-    /// Returns, THIS IS NOT THERE BY DEFAULT!
-    pub fn ret(self: *Assembler) !void{
-        try self.emitter.bytes.append(self.allocator, 0xc3);
-    }
-
-    /// function epilogue 
-    pub fn leave(self: *Assembler) !void{
-        try self.emitter.bytes.append(self.allocator, 0xc9);
-    }
-
-    /// Emits and instruction 
-    pub fn emit(self: *Assembler, instruction: []const Emitter.Encoding, operands: []const Operand) !void{
-        const ops: []Emitter.Operand = try self.allocator.alloc(Emitter.Operand, operands.len);
-        Assembler.from(operands, ops);
-        std.debug.print("{any}\n", .{ops});
-        try self.emitter.emit(instruction, ops);
-        self.allocator.free(ops);
-    }
 };
-
 
 test "Testing code lol"{
     const allocator = std.testing.allocator;
-    var a: Assembler = .init(allocator);
-    defer a.deinit();
+    var e: Emitter = .init(allocator);
+    defer e.deinit();
 
- 
-    const main: usize = a.new_label();
-    try a.push(.{ .Register = .rbp });
-    try a.mov(.{ .Register = .rbp }, .{ .Register = .rsp });
-    try a.bind(main);
-    try a.sub(.{ .Register = .rsp }, .{ .Immediate = 16 });
-    
-    try a.mov(.{ .Register = .rax }, .{ .Offset = main });
     const mem: Memory = .{
-        .base = .rdx,
-        .size = 1, 
+        .size = 8,
+        .base = .rax,
+        .displacement =  90,
+        .scale = scale1,
+        .index = .rbp,
     };
-    try a.imul(&.{
-        .{.Register = .rax},
-        .{.Memory = mem},
-        .{.Immediate = 90}
-    });
 
-    try a.lea(Register.Register.rax, mem);
+    const main = e.new_label();
+    try e.emit(Instructions.movq, &.{ .{.Register = .xmm1}, .{.Memory = mem} }); 
+    
+    try e.bind(main);
+    
+    try e.bytes.append(allocator, 0xc3);
+    
+    try e.emit(Instructions.jmp, &.{ .{.Immediate = 0} });
+    try e.patch_rel(main);
+    
 
-    try a.cmp(.{ .Register = .rax }, .{ .Immediate = 90 });
-    try a.mov(.{ .Register = .rsp }, .{ .Register = .rbp });
-    try a.pop(.{ .Register = .rbp });
-    try a.jcc(Jcc.Ja, main);
-    try a.setcc(Setcc.E, .{ .Register = .r12 });
-    try a.ret();
-
-    const func = try a.takefunc();
-    try func.print_bytes(allocator);
+    const func = try e.takefunc();
+    try func.write_bytes("code.bin", allocator);
     defer func.deinit();
     //func.asptr(*const fn () callconv(.c) void)();
 }

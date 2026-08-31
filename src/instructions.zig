@@ -1,11 +1,32 @@
-const Emitter = @import("emitter/emitter.zig");
+///! Predefined common instructions 
 
-/// Instructions used by the defined functions in the Assembler struct 
+const Emitter = @import("root.zig");
 
 pub const ret: []const Emitter.Encoding = &.{
     .{
         .opcode = .{.other = &.{0xc3}},
         .operands = &.{},
+    }
+};
+
+pub const movq: []const Emitter.Encoding = &.{
+    .{
+        .rex64 = false,
+        .prefix = 0xF3,
+        .opcode = .{.s64 = &.{0x0F, 0x7E}},
+        .operands = &.{.xmm, .xmm_m},
+        .rex = .{.r = 0, .b = 1},
+        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }},
+        .size  = 8,
+    },
+    .{
+        .rex64 = false,
+        .prefix = 0x66,
+        .opcode = .{.s64 = &.{0x0F, 0xD6}},
+        .operands = &.{.xmm_m, .xmm},
+        .rex = .{.r = 1, .b = 0},
+        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }},
+        .size = 8 
     }
 };
 

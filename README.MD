@@ -7,15 +7,18 @@ You can then load these bytes into executable memory to be called like a normal 
 # Examples 
 ## Basic usage 
 ```zig 
-var a: zasm.Assembler = .init(std.testing.allocator);
-defer a.deinit();
+var e: zasm.Emitter = .init(std.testing.allocator);
+defer e.deinit();
 
-// Mov 4290 into rax adn return 
-try a.mov(.{ .Register =  .rax }, .{ .Immediate = 4290 });
-try a.ret();
+// Mov 4290 into rax an return 
+try e.emit(zasm.Instructions.mov, &.{ 
+	.{ .Register = .rax },
+	.{ .Immediate = 4290 }
+});
+try e.emit(zasm.Instructions.ret, &.{}); 
 
 // Creates a function struct which holds the executable memory
-const func: zasm.Function = try a.takefunc();
+const func: zasm.Function = try e.takefunc();
 defer func.deinit();
 
 // Creates a function pointer 
@@ -30,44 +33,54 @@ std.debug.print("{}\n", .{funcptr()});
 Zasm also allows you to describe instructions and use them. For example, the example above
 
 ```zig
-/// describe our instruction
-const mov: []const zasm.Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0x88}, .other = &.{0x89}},
-        .operands = &.{.rm, .reg},
-        .rex = .{ .r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x8A}, .other = &.{0x8B}},
-        .operands = &.{.reg, .rm},
-        .rex = .{ .r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0xB0}, .other = &.{0xB8}},
-        .operands = &.{.reg, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0xC6}, .other = &.{0xC7}},
-        .operands = &.{.rm, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
-        .imm_max = 4,
-    },
-};
+	// describe our instruction
+	const ret: []const zasm.Encoding = &.{
+		.{
+			.opcode = .{.other = &.{0xc3}},
+			.operands = &.{},
+		}
+	};
 
-    var a: zasm.Assembler = .init(std.testing.allocator);
-    defer a.deinit();
+	const mov: []const zasm.Encoding = &.{
+		.{
+			.opcode = .{ .s8 = &.{0x88}, .other = &.{0x89}},
+			.operands = &.{.rm, .reg},
+			.rex = .{ .r = 1, .b = 0},
+			.modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
+		},
+		.{
+			.opcode = .{ .s8 = &.{0x8A}, .other = &.{0x8B}},
+			.operands = &.{.reg, .rm},
+			.rex = .{ .r = 0, .b = 1},
+			.modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
+		},
+		.{
+			.opcode = .{ .s8 = &.{0xB0}, .other = &.{0xB8}},
+			.operands = &.{.reg, .imm},
+			.rex = .{ .b = 0},
+			.modr = .{.reg = .{ .operand = 0 }}
+		},
+		.{
+			.opcode = .{ .s8 = &.{0xC6}, .other = &.{0xC7}},
+			.operands = &.{.rm, .imm},
+			.rex = .{ .b = 0},
+			.modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
+			.imm_max = 4,
+		},
+	};
 
-	// Takes in a slice of Encodings and a slice of Operands
-    try a.emit(mov, &.{.{ .Register =  .rax }, .{ .Immediate = 4290 }});
-    try a.ret();
+	var e: zasm.Emitter = .init(std.testing.allocator);
+    defer e.deinit();
+
+    // Mov 4290 into rax an return 
+    try e.emit(mov, &.{ 
+        .{ .Register = .rax },
+        .{ .Immediate = 4290 }
+    });
+    try e.emit(ret, &.{}); 
     
     // Creates a function struct which holds the executable memory
-    const func: zasm.Function = try a.takefunc();
+    const func: zasm.Function = try e.takefunc();
     defer func.deinit();
 
     // Creates a function pointer 
