@@ -1,13 +1,19 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const Emitter = @import("emitter/emitter.zig");
 const Instructions = @import("instructions.zig");
 
-pub const Register = @import("emitter/register.zig");
+pub const AsmError = @import("errors.zig").AsmError;
+pub const Emitter = @import("emitter/emitter.zig");
+pub const Register = @import("emitter/register.zig").Register;
 pub const Memory = Emitter.Memory;
 pub const Jcc = Instructions.Jcc;
 pub const Setcc = Instructions.Setcc;
 
+
+/// Patch Kind 
+/// Label is used for jmps, e.g `jmp .cond`
+/// AbsLabel is used when you want to write the address of .cond 
+/// into a register e.g `mov rax, .cond`
 const Patch = union(enum){
     label: struct {
         pos: usize,
@@ -21,30 +27,26 @@ const Patch = union(enum){
 
 /// Operands 
 pub const Operand = union(enum){
-    Register: Register.Register,
+    Register: Register,
     Immediate: i64,
     Memory: Memory,
     // label id!
     Offset: usize,
 };
 
-/// AsmErrors 
-pub const AsmError = error{
-    MprotectFailed,
-    SizeMisMatch,
-    OperandMisMatch,
-    RelOutOfRange,
-};
 
-/// Used to manage functions 
+
+/// A Function struct which hold the excutable code
 pub const Function = struct{
     code: []u8,
     len: usize,
 
-    fn asptr(self: *const Function, comptime funcptr: type) funcptr{
+    /// Returns a func pointer to the allocated memory
+    pub fn asptr(self: *const Function, comptime funcptr: type) funcptr{
         return @ptrCast(self.code.ptr);
     }
 
+    /// Creates a new Function code should be executable memory  
     fn init(code: []u8, len: usize) Function{
         return Function{
             .code = code,
@@ -52,24 +54,23 @@ pub const Function = struct{
         };
     }
 
-    fn deinit(self: *const Function) void {
+    /// Pretty obv, returns the allocated memory back to the system  
+    pub fn deinit(self: *const Function) void {
         std.posix.munmap(@alignCast(self.code));
     }
 
-    pub fn print_bytes(self: *const Function, allocator: std.mem.Allocator) !void{
+    /// This writes the bytes into a file used with a tool like objdump 
+    /// to see the human readable representation
+    pub fn write_bytes(self: *const Function, filename: []const u8, allocator: std.mem.Allocator) !void{
         var threaded: std.Io.Threaded = .init(allocator, .{});
         defer threaded.deinit();
         const io = threaded.io();
         {
             const cwd = std.Io.Dir.cwd();
-            var file = try cwd.createFile(io, "code.bin", .{});
+            var file = try cwd.createFile(io, filename, .{});
             defer file.close(io);
             try file.writeStreamingAll(io, self.code[0..self.len]);
         }
-        //for (self.bytes.items) |byte| {
-          //std.debug.print("{x:0>2} ", .{byte});
-        //}
-        //std.debug.print("\n", .{});
     }
 
 };
@@ -85,6 +86,7 @@ pub const Assembler = struct {
     labels: std.AutoHashMap(usize, usize),
     lab_id: usize = 0,
 
+    /// Creates a new Assembler
     pub fn init(allocator: std.mem.Allocator) Assembler{
         return .{
             .allocator = allocator,
@@ -94,6 +96,7 @@ pub const Assembler = struct {
         };
     }
 
+    /// Creates a function from the bytes in the emitter struct
     fn createfunc(self: *Assembler) !Function{
         const size = std.mem.alignForward(usize, self.emitter.bytes.items.len, std.heap.pageSize());
         var ptr = try std.posix.mmap(
@@ -134,27 +137,35 @@ pub const Assembler = struct {
         return Function.init(ptr, len);
     }
 
+    /// Returns a Function, this clears the current bytes and binded labels 
     pub fn takefunc(self: *Assembler) !Function{
         if(self.emitter.bytes.items.len == 0){
             try self.emitter.bytes.append(self.allocator, 0xc3);
         }
         const func = try self.createfunc();
         self.emitter.bytes.clearRetainingCapacity();
+        self.patches.clearRetainingCapacity();
+        self.lab_id = 0;
+        self.labels.clearRetainingCapacity();
         return func; 
     }
 
+    /// Frees the data structures used by the Assembler
     pub fn deinit(self: *Assembler) void{
         self.emitter.deinit();
         self.labels.deinit();
         self.patches.deinit(self.allocator);
     }
 
+    /// Creates a new label and returns the id 
+    /// You will not be able to jump to this unless you call `.bind()`
     pub fn new_label(self: *Assembler) usize{
         self.lab_id+=1;
         return self.lab_id-1;
     }
     
-    
+   
+    /// Converts the Assembler operands to the Emitter operands
     fn from(operands :[]const Operand, eoperands: []Emitter.Operand) void {
         for(operands, 0..operands.len)|op, indx|{
             switch (op){
@@ -174,10 +185,12 @@ pub const Assembler = struct {
         }
     }
 
+    /// Takes in a label id and binds it to the current position
     pub fn bind(self: *Assembler, label: usize) !void{
         try self.labels.put(label, self.emitter.bytes.items.len);
     }
 
+    /// Jumps to a position via register or label id 
     pub fn jmp(self: *Assembler, src: Operand) !void{
         var ops: [1]Emitter.Operand = undefined;
         if(src == .Offset){
@@ -202,6 +215,7 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.jmp, &ops);  
     }
 
+    /// Calls a block of code via register or label id 
     pub fn call(self: *Assembler, src: Operand) !void{
         var ops: [1]Emitter.Operand = undefined;
         if(src == .Offset){
@@ -227,6 +241,7 @@ pub const Assembler = struct {
         
     }
 
+    /// Moves a value into a register or into memory
     pub fn mov(self: *Assembler, dest: Operand, src: Operand) !void{
         if(dest == .Immediate){return AsmError.SizeMisMatch;}
         var nsrc: Operand = src;
@@ -250,6 +265,7 @@ pub const Assembler = struct {
         }
     }
 
+    /// Adds a two values and stores it in dest 
     pub fn add(self: *Assembler, dest: Operand, src: Operand) !void{
         if(dest == .Immediate){return AsmError.SizeMisMatch;}
         var ops: [2]Emitter.Operand = undefined;
@@ -263,6 +279,7 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.add, &ops);
     }
     
+    /// Compares two operands
     pub fn cmp(self: *Assembler, dest: Operand, src: Operand) !void{
         if(dest == .Immediate){return AsmError.SizeMisMatch;}
         var ops: [2]Emitter.Operand = undefined;
@@ -276,6 +293,7 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.cmp, &ops);
     }
 
+    /// Subtarcts src from dest
     pub fn sub(self: *Assembler, dest: Operand, src: Operand) !void{
         if(dest == .Immediate){return AsmError.SizeMisMatch;}
         var ops: [2]Emitter.Operand = undefined;
@@ -289,6 +307,7 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.sub, &ops);
     }
 
+    /// Pushes an operand
     pub fn push(self: *Assembler, src: Operand) !void{
         if(src == .Offset){return AsmError.OperandMisMatch;}
         var ops: [1]Emitter.Operand = undefined;
@@ -301,6 +320,7 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.push, &ops);
     }
 
+    /// Pops a value into the operand
     pub fn pop(self: *Assembler, src: Operand) !void{
         if(src != .Memory and src != .Register){return AsmError.OperandMisMatch;}
         var ops: [1]Emitter.Operand = undefined;
@@ -312,7 +332,9 @@ pub const Assembler = struct {
         );
         try self.emitter.emit(Instructions.pop, &ops);
     }
-
+    
+    /// Jumps conditionally expects a condition
+    /// You Can find these conditions in `Jcc` 
     pub fn jcc(self: *Assembler, condition: u8, to: usize) !void {
         try self.patches.append(self.allocator, .{ .label = .{ 
             .label_id = to,
@@ -321,6 +343,18 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.generate_jcc(condition), &.{ .{.Immediate = 0} });  
     }
 
+    /// Takes in at max 3 operands 
+    /// This does not support imul reg rm imm8
+    /// You will have to do that manually
+    pub fn imul(self: *Assembler, operand: []const Operand) !void{
+        const ops: []Emitter.Operand = try self.allocator.alloc(Emitter.Operand, operand.len);
+        Assembler.from(operand, ops);
+        try self.emitter.emit(Instructions.imul, ops);
+        self.allocator.free(ops);
+    }
+
+    /// Sets the Operand to a value based on if a condition is true  
+    /// You can find these conditions in 'Setcc' 
     pub fn setcc(self: *Assembler, condition: u8, src: Operand) !void{
         var ops: [1]Emitter.Operand = undefined;
         Assembler.from(
@@ -332,16 +366,35 @@ pub const Assembler = struct {
         try self.emitter.emit(Instructions.generate_setcc(condition), &ops);
     }
 
+    /// Loads an effective address idk what else to say man! 
+    pub fn lea(self: *Assembler, dest: Register, src: Memory) !void{
+        const ops: [2]Emitter.Operand = .{ .{.Register = dest}, .{.Memory = src} };
+        try self.emitter.emit(Instructions.lea, &ops);
+    }
+
+
+    /// Returns, THIS IS NOT THERE BY DEFAULT!
     pub fn ret(self: *Assembler) !void{
         try self.emitter.bytes.append(self.allocator, 0xc3);
     }
 
+    /// function epilogue 
     pub fn leave(self: *Assembler) !void{
         try self.emitter.bytes.append(self.allocator, 0xc9);
     }
+
+    /// Emits and instruction 
+    pub fn emit(self: *Assembler, instruction: []const Emitter.Encoding, operands: []const Operand) !void{
+        const ops: []Emitter.Operand = try self.allocator.alloc(Emitter.Operand, operands.len);
+        Assembler.from(operands, ops);
+        std.debug.print("{any}\n", .{ops});
+        try self.emitter.emit(instruction, ops);
+        self.allocator.free(ops);
+    }
 };
 
-test "Leaks"{
+
+test "Testing code lol"{
     const allocator = std.testing.allocator;
     var a: Assembler = .init(allocator);
     defer a.deinit();
@@ -354,6 +407,17 @@ test "Leaks"{
     try a.sub(.{ .Register = .rsp }, .{ .Immediate = 16 });
     
     try a.mov(.{ .Register = .rax }, .{ .Offset = main });
+    const mem: Memory = .{
+        .base = .rdx,
+        .size = 1, 
+    };
+    try a.imul(&.{
+        .{.Register = .rax},
+        .{.Memory = mem},
+        .{.Immediate = 90}
+    });
+
+    try a.lea(Register.Register.rax, mem);
 
     try a.cmp(.{ .Register = .rax }, .{ .Immediate = 90 });
     try a.mov(.{ .Register = .rsp }, .{ .Register = .rbp });

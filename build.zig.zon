@@ -1,6 +1,6 @@
 .{
    .name = .zasm,
-   .version = "0.1.0",
+   .version = "0.0.2",
    .fingerprint = 0x5bc20923a171e4b9,
    .minimum_zig_version = "0.16.0",
    .dependencies = .{
@@ -9,5 +9,6 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "README.MD"
     },
 }

@@ -1,6 +1,7 @@
 const Emitter = @import("emitter/emitter.zig");
 
-// This is redundant 
+/// Instructions used by the defined functions in the Assembler struct 
+
 pub const ret: []const Emitter.Encoding = &.{
     .{
         .opcode = .{.other = &.{0xc3}},
@@ -179,6 +180,41 @@ pub const call: []const Emitter.Encoding = &.{
     }
 };
 
+pub const imul_imm8: []const Emitter.Encoding = &.{
+    .{
+        .opcode = .{.other = &.{0x6B} },
+        .operands = &.{.reg, .rm, .imm},
+        .rex = .{ .r = 0, .b = 1 },
+        .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
+        .imm_max = 1,
+    }
+};
+
+pub const lea: []const Emitter.Encoding = &.{
+    .{
+        .opcode = .{.other = &.{0x8D}},
+        .operands = &.{.reg, .mem},
+        .rex = .{.r = 0, .b = 1},
+        .modr = .{.rm = .{ .operand = 1 }, .reg = .{ .operand = 0 }},
+    }
+};
+
+pub const imul: []const Emitter.Encoding = &.{
+    .{
+        .opcode = .{ .s8 = &.{0xF6},  .other = &.{0xF7} },
+        .operands = &.{.rm},
+        .rex = .{ .b = 0 },
+        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 5 } }
+    },
+    .{
+        .opcode = .{.other = &.{0x69} },
+        .operands = &.{.reg, .rm, .imm},
+        .rex = .{ .r = 0, .b = 1 },
+        .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
+        .imm_max = 4,
+        .imm_min = 2,
+    }
+};
 pub fn generate_jcc(condition: u8) []const Emitter.Encoding{
     return &.{
         .{

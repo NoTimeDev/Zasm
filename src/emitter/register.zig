@@ -1,3 +1,7 @@
+/// A way to encode registers 
+
+//Todo: Im pretty sure r8-r15 are incorrect for modern instruction so fix that ig! 
+
 pub const Register = struct{
     size: u8, 
     encoding: u8,

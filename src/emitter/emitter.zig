@@ -1,7 +1,9 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const registers = @import("register.zig");
 const bits = @import("bits.zig");
 const ArrayList = std.ArrayList;
+pub const AsmError = @import("../errors.zig").AsmError;
 
 /// Struct used to describe memory accses eg. `inst op, *[...]*`
 pub const Memory = struct {
@@ -88,6 +90,7 @@ pub const Encoding = struct {
     rex: ?RexSpec = null,
     modr: ?ModrSpec = null,
     imm_max: u8 = 8,
+    imm_min: u8 = 1,
     rex64: bool = true,
     size: ?u8 = null,
 };
@@ -114,7 +117,7 @@ pub const Emitter = struct{
         }
         return true;
     }
-    
+   
     fn emitencoding(self: *Emitter, encoding: Encoding, operands: []const Operand) !void{
         if(operands.len == 0){
             try self.bytes.appendSlice(self.allocator, encoding.opcode.other.?);
@@ -308,7 +311,7 @@ pub const Emitter = struct{
                     }
                 },
                 .Immediate => |imm|{
-                    for (std.mem.asBytes(&imm)[0..@min(size, encoding.imm_max)])|byte|{
+                    for (std.mem.asBytes(&imm)[0..@max(encoding.imm_min, @min(size, encoding.imm_max))])|byte|{
                         try self.bytes.append(self.allocator, byte);
                     }
                 },
@@ -317,6 +320,7 @@ pub const Emitter = struct{
         }
     }
 
+    /// Emits an instructions
     pub fn emit(self: *Emitter, encodings: []const Encoding,  operands: []const Operand) !void {
         for(encodings)|encoding|{
             if(Emitter.match(encoding.operands, operands)){
@@ -324,25 +328,9 @@ pub const Emitter = struct{
                 return;
             }
         }
-        unreachable;
+        return AsmError.OperandMisMatch;
     }
 
- 
-    pub fn print_bytes(self: *const Emitter) !void{
-        var threaded: std.Io.Threaded = .init(self.allocator, .{});
-        defer threaded.deinit();
-        const io = threaded.io();
-        {
-            const cwd = std.Io.Dir.cwd();
-            var file = try cwd.createFile(io, "code.bin", .{});
-            defer file.close(io);
-            try file.writeStreamingAll(io, self.bytes.items);
-        }
-        //for (self.bytes.items) |byte| {
-          //std.debug.print("{x:0>2} ", .{byte});
-        //}const 
-        //std.debug.print("\n", .{});
-    }
     pub fn deinit(self: *Emitter) void{
         self.bytes.deinit(self.allocator);
     }
