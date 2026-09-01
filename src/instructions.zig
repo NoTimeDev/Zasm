@@ -1,5 +1,4 @@
 ///! Predefined common instructions 
-
 const Emitter = @import("root.zig");
 
 pub const ret: []const Emitter.Encoding = &.{

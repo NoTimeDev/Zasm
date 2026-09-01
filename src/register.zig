@@ -1,5 +1,4 @@
 /// Describing registers and some pre defined ones 
-
 pub const RegisterClass = enum{
     gpr,
     xmm,

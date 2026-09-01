@@ -269,7 +269,11 @@ pub const Emitter = struct{
         }else if(size == 1 and encoding.opcode.s8 != null){
             opcode = encoding.opcode.s8.?;
         }else{
-            opcode = encoding.opcode.other.?;
+            if(encoding.opcode.other)|eopcode|{
+                opcode = eopcode;
+            }else{
+                return AsmError.SizeMisMatch;
+            }
         }
 
         
