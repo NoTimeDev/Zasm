@@ -27,23 +27,13 @@ pub const scale8: u8 = 0b11;
 /// The Data the asm operators act upon 
 pub const Operand = union(enum){
     Register: registers.Register,
-    Immediate: i64,
+    Immediate: struct {value: u64, size: u8},
     Memory: Memory,
     
     fn get_size(self: *const Operand) u8{
         if(self.* == .Register){return self.Register.size;}
         else if(self.* == .Immediate){
-            const x = self.Immediate;
-            if (@as(i64, -128) <= x and x <= 127)
-                return 1;
-
-            if (@as(i64, -32768) <= x and x <= 32767)
-                return 2;
-
-            if (@as(i64, -2147483648) <= x and x <= 2147483647)
-                return 4;
-
-            return 8;
+            return self.Immediate.size;
         }else{
             return self.Memory.size;
         }
@@ -182,11 +172,17 @@ pub const Emitter = struct{
         }
     }
     ///Matches operands againts encodings and verify's Memory struct 
-    fn match(encoding: []const OperandKind, operands: []const Operand) !bool{
-        if(encoding.len != operands.len){return false;}
-        for(encoding, operands)|opk, op|{
+    fn match(encoding: Encoding, operands: []const Operand) !bool{
+        if(encoding.operands.len != operands.len){return false;}
+        for(encoding.operands, operands)|opk, op|{
             if(opk == .reg and op != .Register){return false;}
-            else if(opk == .imm and op != .Immediate){return false;}
+            else if(opk == .imm and op != .Immediate){
+                return false;
+            }else if(opk == .imm and op == .Immediate){
+                if(op.Immediate.size > encoding.imm_max or encoding.imm_min > op.Immediate.size){
+                    return false;
+                }
+            }
             else if(opk == .mem and op != .Memory){return false;}
             else if(opk == .rm and (op != .Register and op != .Memory)){return false;}
             else if(opk == .xmm){
@@ -408,7 +404,7 @@ pub const Emitter = struct{
                     }
                 },
                 .Immediate => |imm|{
-                    for (std.mem.asBytes(&imm)[0..@max(encoding.imm_min, @min(size, encoding.imm_max))])|byte|{
+                    for (std.mem.asBytes(&imm.value)[0..imm.size])|byte|{
                         try self.bytes.append(self.allocator, byte);
                     }
                 },
@@ -506,7 +502,7 @@ pub const Emitter = struct{
     pub fn emit(self: *Emitter, encodings: []const Encoding,  operands: []const Operand) !void {
         const start = self.bytes.items.len;
         for(encodings)|encoding|{
-            if(try Emitter.match(encoding.operands, operands)){
+            if(try Emitter.match(encoding, operands)){
                 try self.emitencoding(encoding, operands);
                 return;
             }
@@ -527,27 +523,13 @@ test "Testing code lol"{
     var e: Emitter = .init(allocator);
     defer e.deinit();
 
-    const mem: Memory = .{
-        .size = 8,
-        .base = .rax,
-        .displacement =  90,
-        .scale = scale1,
-        .index = .rbp,
-    };
-
-    const main = e.new_label();
-    try e.emit(Instructions.movq, &.{ .{.Register = .xmm1}, .{.Memory = mem} }); 
+  
+    try e.emit(Instructions.imul, &.{ .{.Register = .ax}, .{.Register = .bl}, .{.Immediate = .{.value = 10, .size = 2}} }); 
     
-    try e.bind(main);
     
-    try e.bytes.append(allocator, 0xc3);
-    
-    try e.emit(Instructions.jmp, &.{ .{.Immediate = 0} });
-    try e.patch_rel(main);
-    
-
     const func = try e.takefunc();
     try func.write_bytes("code.bin", allocator);
     defer func.deinit();
+
     //func.asptr(*const fn () callconv(.c) void)();
 }

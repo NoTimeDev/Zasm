@@ -3,4 +3,5 @@ zig-out/
 *.bin
 *.asm
 *.o
-
+*.a
+docs/
