@@ -1,97 +1,26 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const registers = @import("register.zig");
 const bits = @import("bits.zig");
 const ArrayList = std.ArrayList;
 
 pub const Instructions = @import("instructions.zig");
-pub const AsmError = @import("errors.zig").AsmError;
 pub const Register = @import("register.zig").Register;
 pub const Jcc = Instructions.Jcc;
 pub const Setcc = Instructions.Setcc;
 
-/// Struct used to describe memory accses eg. `inst op, *[...]*`
-pub const Memory = struct {
-    base: ?registers.Register = null,
-    index: ?registers.Register = null,
-    scale: u8 = 0, 
-    displacement: i32 = 0,
-    size: u8,
+pub const AsmError = error{
+    ///Failed to set memory protection
+    MprotectFailed,
+    ///Size mis match when generating an instruction
+    SizeMisMatch,
+    ///Invalid operands for an instruction
+    OperandMisMatch,
+    ///Relative is out of range
+    RelOutOfRange,
+    ///Non gpr value in a Memory operand
+    NonGPRInMem,
 };
 
-pub const scale1: u8 = 0b00;
-pub const scale2: u8 = 0b01;
-pub const scale4: u8 = 0b10;
-pub const scale8: u8 = 0b11;
-
-/// The Data the asm operators act upon 
-pub const Operand = union(enum){
-    Register: registers.Register,
-    Immediate: struct {value: u64, size: u8},
-    Memory: Memory,
-    
-    fn get_size(self: *const Operand) u8{
-        if(self.* == .Register){return self.Register.size;}
-        else if(self.* == .Immediate){
-            return self.Immediate.size;
-        }else{
-            return self.Memory.size;
-        }
-    }
-};
-
-/// Used to represent the operand data 
-pub const OperandKind = enum {
-    reg, 
-    rm,
-    imm,
-    mem,
-
-    xmm,
-    xmm_m,
-};
-
-// Encoding for Rex 
-pub const RexSpec = struct {
-    r: ?u4 = null, 
-    b: ?u4 = null
-};
-
-/// Field for modr 
-pub const ModrField = union(enum){
-    operand: u8,
-    fixed: u3,
-    none,
-};
-
-/// Encoding for modr
-pub const ModrSpec = struct {
-    reg: ModrField = .none, 
-    rm: ModrField = .none,
-};
-
-/// Encoding for opcode 
-pub const OpCode = struct {
-    s64: ?[]const u8 = null,
-    s32: ?[]const u8 = null,
-    s16: ?[]const u8 = null,
-    s8: ?[]const u8 = null,
-    other: ?[]const u8 = null,
-};
-
-/// An encoding for a specific instructions operand group(8 bit && 16-64 bit)
-/// eg `mov reg/mem, reg`
-pub const Encoding = struct {
-    prefix: ?u8 = null,
-    opcode: OpCode,
-    operands: []const OperandKind,
-    rex: ?RexSpec = null,
-    modr: ?ModrSpec = null,
-    imm_max: u8 = 8,
-    imm_min: u8 = 1,
-    rex64: bool = true,
-    size: ?u8 = null,
-};
 
 pub const Function = struct{
     code: []u8,
