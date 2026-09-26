@@ -2,7 +2,7 @@ const std = @import("std");
 const bits = @import("bits.zig");
 const ArrayList = std.ArrayList;
 const root = @import("root.zig");
-const Size = root.operands.Size;
+const Size = root.Size;
 
 /// Holds the bytes for a function, which is written to executable memory
 /// This struct is used to manage these bytes across platforms & architechures
@@ -16,10 +16,9 @@ pub const Function = struct{
 
     /// Creates a new Function
     /// `code` is expected to be executable memory
-    fn init(code: []u8, len: usize) Function{
+    fn init(code: []u8) Function{
         return Function{
             .code = code,
-            .len = len 
         };
     }
 
@@ -38,7 +37,7 @@ pub const Function = struct{
             const cwd = std.Io.Dir.cwd();
             var file = try cwd.createFile(io, filename, .{});
             defer file.close(io);
-            try file.writeStreamingAll(io, self.code[0..self.len]);
+            try file.writeStreamingAll(io, self.code[0..self.code.len]);
         }
     }
 
@@ -114,17 +113,30 @@ pub const Emitter = struct{
             return false;
         }
         // opk -> operand kind, op -> operand
-        for(encoding.operands, operands)|opk, op|{
+        for(encoding.operands, operands, encoding.size_constraints)|opk, op, constriants|{
+            
+            var matched: bool = false;
+            outer: for(constriants)|constriant|{
+                if(constriant.cond)|cond|{
+                    if(opk == cond){
+                        continue;
+                    }
+                }
+                const size = get_size(&op);
+                for(constriant.sizes)|size_constraint|{
+                    if(size == size_constraint){
+                        matched = true;
+                        break :outer;
+                    }
+                }
+            }
+            if(!matched) return false;
             if(opk == .gpr and op != .Register){
                 return false;
             }
 
             else if(opk == .imm and op != .Immediate){
                 return false;
-            }else if(opk == .imm and op == .Immediate){
-                if(op.Immediate.size > encoding.imm_max or encoding.imm_min > op.Immediate.size){
-                    return false;
-                }
             }
             else if(opk == .mem and op != .Memory){
                 return false;
@@ -176,7 +188,7 @@ pub const Emitter = struct{
             }
         }
 
-        const size = if(encoding.size)|size| size else get_size(&operands[0]); 
+        const size = get_size(&operands[encoding.instrsize]); 
         if(encoding.prefix.legacy.rex){
             var rex_w: u1 = 0;
             var rex_r: u1 = 0;
@@ -201,7 +213,7 @@ pub const Emitter = struct{
                     }
                 }
             }
-            rex_w = if(size == 8) 1 else 0;
+            rex_w = if(size == .qword) 1 else 0;
             rex_x = 0;
             if(encoding.modr)|modr|{
                 if(modr.rm == .operand and operands[modr.rm.operand] == .Memory and operands[modr.rm.operand].Memory.index != null){
@@ -211,26 +223,22 @@ pub const Emitter = struct{
             try self.bytes.append(self.allocator, bits.create_rex(rex_w, rex_r, rex_x, rex_b));
         }
 
-        if(encoding.prefix.legacy.operand_size and size == 2){
+        if(encoding.prefix.legacy.operand_size and size == .word){
             try self.bytes.append(self.allocator, 0x66);
         }
 
-        var opcode: []const u8 = undefined;
-        if(size == 8 and encoding.opcode.s64 != null){
-            opcode = encoding.opcode.s64.?;
-        }else if(size == 4 and encoding.opcode.s32 != null){
-            opcode = encoding.opcode.s32.?;
-        }else if(size == 2 and encoding.opcode.s16 != null){
-            opcode = encoding.opcode.s16.?;
-        }else if(size == 1 and encoding.opcode.s8 != null){
-            opcode = encoding.opcode.s8.?;
-        }else{
-            if(encoding.opcode.all)|eopcode|{
-                opcode = eopcode;
-            }else{
-                return root.AsmError.AllNotDefined;
-            }
-        }
+        const opcode: []const u8 = if(encoding.opcode.all)|all|
+            all
+        else
+        switch(size){
+            .zword => encoding.opcode.s512.?,
+            .yword => encoding.opcode.s256.?,
+            .oword => encoding.opcode.s128.?,
+            .qword => encoding.opcode.s64.?,
+            .dword => encoding.opcode.s32.?,
+            .word => encoding.opcode.s16.?,
+            .byte => encoding.opcode.s8.?,
+        };
 
         if(encoding.modr)|modr|{
             if(modr.rm == .none and modr.reg != .none){
@@ -341,8 +349,8 @@ pub const Emitter = struct{
                         )
                     ){
                         var sib: u8 = 0;
-                        bits.setBit(&sib, 7, bits.getBit(mem.scale, 1));
-                        bits.setBit(&sib, 6, bits.getBit(mem.scale, 0));
+                        bits.setBit(&sib, 7, bits.getBit(@as(u8, @intFromEnum(mem.scale)), 1));
+                        bits.setBit(&sib, 6, bits.getBit(@as(u8, @intFromEnum(mem.scale)), 0));
 
                         if(mem.index)|index|{
                             bits.setBit(&sib, 5, bits.getBit(index.encoding, 2));
@@ -384,7 +392,7 @@ pub const Emitter = struct{
                     }
                 },
                 .Immediate => |imm|{
-                    for (std.mem.asBytes(&imm.value)[0..imm.size])|byte|{
+                    for (std.mem.asBytes(&imm.value)[0..@intFromEnum(imm.size)])|byte|{
                         try self.bytes.append(self.allocator, byte);
                     }
                 },

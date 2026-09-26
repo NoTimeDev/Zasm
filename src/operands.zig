@@ -1,4 +1,5 @@
-pub const Register = @import("register.zig").Register;
+const Register = @import("register.zig").Register;
+const Size = @import("root.zig").Size;
 
 ///Scaling factor used in memory addressing
 pub const Scale = enum(u2){
@@ -12,17 +13,6 @@ pub const Scale = enum(u2){
     scale8 = 0b11,
 };
 
-///Size used to match operands to their instruction
-pub const Size = enum(u8){
-    ///byte - 1 byte(lol)
-    byte = 1,
-    ///Word - 2 bytes
-    word = 2,
-    ///Dword - 4 bytes
-    dword = 4,
-    ///Qword - 8 bytes
-    qword = 8
-};
 
 ///Struct describing memory operand 
 ///`[ base + index * scale + displacement]`

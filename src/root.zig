@@ -2,6 +2,10 @@ pub const emitter = @import("emitter.zig");
 pub const operands = @import("operands.zig");
 pub const encoding = @import("encoding.zig");
 
+pub const Operand = operands.Operand;
+pub const Memory = operands.Memory;
+pub const Scale = operands.Scale;
+
 pub const Instructions = @import("instructions.zig");
 pub const Register = @import("register.zig").Register;
 pub const AsmError = error{
@@ -21,9 +25,26 @@ pub const AsmError = error{
     /// Mis match with modr, eg .rm = .none & .reg = .fixed
     ModrMisMatch,
     /// If base and index are null in a memory field
-    NullBaseAndIndex
+    NullBaseAndIndex,
 };
 
+///Size used to match operands to their instruction
+pub const Size = enum(u8){
+    /// B`yte - 1 byte(lol)
+    byte = 1,
+    /// Word - 2 bytes
+    word = 2,
+    /// Doubleword - 4 bytes
+    dword = 4,
+    /// Quadword - 8 bytes
+    qword = 8,
+    /// OctoWord - 16 bytes
+    oword = 16,
+    /// YmmWord - 32 bytes 
+    yword = 32,
+    /// ZmmWord - 64 bytes 
+    zword = 64,
+};
 test "Testing code lol"{
     const std = @import("std");
     const allocator = std.testing.allocator;
@@ -31,7 +52,14 @@ test "Testing code lol"{
     var e: emitter.Emitter = .init(allocator);
     defer e.deinit();
 
-    try e.emit(Instructions.movq, &.{ .{.Register = .xmm0}, .{.Register = .xmm1} });     
+    const mem: Memory = .{
+        .scale = .scale4,
+        .size = .qword,
+        .base = .rax,
+        .displacement = 90,
+        .index = .rbx,
+    };
+    try e.emit(Instructions.movq, &.{ .{.Memory = mem}, .{.Register = .xmm0} });     
     
     const func = try e.takefunc();
     try func.write_bytes("code.bin", allocator);

@@ -1,5 +1,6 @@
 ///! Predefined common instructions 
 const Encoding = @import("encoding.zig");
+const Size = @import("root.zig").Size;
 
 pub const movq: []const Encoding.Encoding = &.{
     .{
@@ -7,12 +8,63 @@ pub const movq: []const Encoding.Encoding = &.{
             .prefix = .{ .sse = 0xF3 },
             .legacy = .{}
         },
-        .opcode = .{ .all = &.{0x0F, 0x7E} },
+        .opcode = .{ .s128 = &.{0x0F, 0x7E} },
         .operands = &.{.xmm, .xmm_m},
         .rex = .{.r = 0, .b = 1 },
         .modr = .{
             .reg = .{ .operand = 0 },
             .rm = .{ .operand = 1 }
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .cond = .mem,
+                    .sizes = &.{Size.qword}
+                },
+                .{
+                    .sizes = &.{Size.oword}
+                }
+            }
+        }
+    },
+    .{
+        .prefix = .{ 
+            .prefix = .{ .sse = 0x66 },
+            .legacy = .{}
+        },
+        .opcode = .{ .s128 = &.{0x0F, 0xd6} },
+        .operands = &.{.xmm_m, .xmm},
+        .rex = .{.r = 1, .b = 0 },
+        .modr = .{
+            .reg = .{ .operand = 1 },
+            .rm = .{ .operand = 0}
+        },
+        .instrsize = 1,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .cond = .mem,
+                    .sizes = &.{Size.qword}
+                },
+                .{
+                    .sizes = &.{Size.oword}
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            }
         }
     }
 };

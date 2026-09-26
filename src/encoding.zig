@@ -1,3 +1,5 @@
+const Size = @import("root.zig").Size;
+
 /// Describes the kind of operand an instruction expects
 pub const OperandKind = enum {
     /// Gpr Register
@@ -54,11 +56,17 @@ pub const ModrSpec = struct {
 /// s16 - the opcode emitted if the operands are a word
 /// s32 - the opcode emitted if the operands are a dword
 /// s64 - the opcode emitted if the operands are a qword
+/// s128 - the opcode emitted if the operands are a oword 
+/// s256 - the opcode emitted if the operands are a yword
+/// s512 - the opcode emitted if the operands are a zword
 /// If a field is set to null, it means the emmitter will not generate
 /// an instruction if the operands size match that field
 /// if `all` is defined it is used as the opcode regardless of the size of the operands 
 pub const OpCode = struct {
     all: ?[]const u8 = null,
+    s512: ?[]const u8 = null,
+    s256: ?[]const u8 = null,
+    s128: ?[]const u8 = null,
     s64: ?[]const u8 = null,
     s32: ?[]const u8 = null,
     s16: ?[]const u8 = null,
@@ -93,6 +101,11 @@ pub const Prefix = struct{
     prefix: PrefixEncoding,
 };
 
+pub const SizeConstraint = struct {
+    cond: ?OperandKind = null,
+    sizes: []const Size,
+};
+
 /// An encoding for a specific instructions operand group(8 bit && 16-64 bit)
 /// eg `mov reg/mem, reg`
 pub const Encoding = struct {
@@ -101,9 +114,6 @@ pub const Encoding = struct {
     operands: []const OperandKind,
     rex: ?RexSpec = null,
     modr: ?ModrSpec = null,
-    imm_max: u8 = 8,
-    imm_min: u8 = 1,
-    size: ?struct{ size: @import("operands.zig").Size, from: u8} = null,
+    instrsize: u8 = 0,
+    size_constraints: []const []const SizeConstraint, 
 };
-
-
