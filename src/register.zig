@@ -5,7 +5,7 @@ pub const RegisterClass = enum{
 };
 
 pub const Register = struct{
-    size: u8, 
+    size: Size, 
     encoding: u8,
     rex: bool,
     class: RegisterClass,

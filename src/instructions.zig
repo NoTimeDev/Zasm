@@ -1,325 +1,334 @@
 ///! Predefined common instructions 
-const Emitter = @import("root.zig");
+const Encoding = @import("encoding.zig");
 
-pub const ret: []const Emitter.Encoding = &.{
+pub const movq: []const Encoding.Encoding = &.{
     .{
-        .opcode = .{.other = &.{0xc3}},
-        .operands = &.{},
-    }
-};
-
-pub const movq: []const Emitter.Encoding = &.{
-    .{
-        .rex64 = false,
-        .prefix = 0xF3,
-        .opcode = .{.s64 = &.{0x0F, 0x7E}},
+        .prefix = .{ 
+            .prefix = .{ .sse = 0xF3 },
+            .legacy = .{}
+        },
+        .opcode = .{ .all = &.{0x0F, 0x7E} },
         .operands = &.{.xmm, .xmm_m},
-        .rex = .{.r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }},
-        .size  = 8,
-    },
-    .{
-        .rex64 = false,
-        .prefix = 0x66,
-        .opcode = .{.s64 = &.{0x0F, 0xD6}},
-        .operands = &.{.xmm_m, .xmm},
-        .rex = .{.r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }},
-        .size = 8 
-    }
-};
-
-pub const cmp: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0x38}, .other = &.{0x39}},
-        .operands = &.{.rm, .reg},
-        .rex = .{ .r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x3A}, .other = &.{0x3B}},
-        .operands = &.{.reg, .rm},
-        .rex = .{ .r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
-        .operands = &.{.rm, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .fixed = 7 }, .rm = .{ .operand = 0 }},
-        .imm_max = 4,
-    },
-};
-
-pub const add: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0x00}, .other = &.{0x01}},
-        .operands = &.{.rm, .reg},
-        .rex = .{ .r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x02}, .other = &.{0x03}},
-        .operands = &.{.reg, .rm},
-        .rex = .{ .r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
-        .operands = &.{.rm, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
-        .imm_max = 4,
-    },
-};
-
-pub const sub: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0x28}, .other = &.{0x29}},
-        .operands = &.{.rm, .reg},
-        .rex = .{ .r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x2A}, .other = &.{0x2B}},
-        .operands = &.{.reg, .rm},
-        .rex = .{ .r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
-        .operands = &.{.rm, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .fixed = 5 }, .rm = .{ .operand = 0 }},
-        .imm_max = 4,
-    },
-};
-
-pub const mov: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0x88}, .other = &.{0x89}},
-        .operands = &.{.rm, .reg},
-        .rex = .{ .r = 1, .b = 0},
-        .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0x8A}, .other = &.{0x8B}},
-        .operands = &.{.reg, .rm},
-        .rex = .{ .r = 0, .b = 1},
-        .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0xB0}, .other = &.{0xB8}},
-        .operands = &.{.reg, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .operand = 0 }}
-    },
-    .{
-        .opcode = .{ .s8 = &.{0xC6}, .other = &.{0xC7}},
-        .operands = &.{.rm, .imm},
-        .rex = .{ .b = 0},
-        .modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
-        .imm_max = 4,
-    },
-};
-
-pub const push: []const Emitter.Encoding = &.{
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0xFF} },
-        .operands = &.{.rm},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 6 } }
-    },
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0x50} },
-        .operands = &.{.reg},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .none, .reg = .{ .operand = 0 } }
-    },
-    .{
-        .rex64 = false,
-        .opcode = .{ .s8 = &.{0x6A}, .other = &.{0x68} },
-        .operands = &.{.imm},
-        .modr = .{ .rm = .none, .reg = .none },
-        .imm_max = 4 
-    }
-};
-
-pub const pop: []const Emitter.Encoding = &.{
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0x8F} },
-        .operands = &.{.rm},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 0 } }
-    },
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0x58} },
-        .operands = &.{.reg},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .none, .reg = .{ .operand = 0 } }
-    }
-};
-
-pub const jmp: []const Emitter.Encoding = &.{
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0xFF} },
-        .operands = &.{.rm},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 4} }
-    },
-    .{
-        .rex64 = false,
-        .opcode = .{.other = &.{0xE9} },
-        .operands = &.{.imm},
-        .modr = .{ .rm = .none, .reg = .none },
-        .imm_max = 4,
-        .size = 4
-    }
-};
-
-pub const call: []const Emitter.Encoding = &.{
-    .{
-        .rex64 = false,
-        .opcode = .{ .other = &.{0xFF} },
-        .operands = &.{.rm},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 2} }
-    },
-    .{
-        .rex64 = false,
-        .opcode = .{.other = &.{0xE8} },
-        .operands = &.{.imm},
-        .modr = .{ .rm = .none, .reg = .none },
-        .imm_max = 4,
-        .size = 4
-    }
-};
-
-pub const lea: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{.other = &.{0x8D}},
-        .operands = &.{.reg, .mem},
-        .rex = .{.r = 0, .b = 1},
-        .modr = .{.rm = .{ .operand = 1 }, .reg = .{ .operand = 0 }},
-    }
-};
-
-pub const imul: []const Emitter.Encoding = &.{
-    .{
-        .opcode = .{ .s8 = &.{0xF6},  .other = &.{0xF7} },
-        .operands = &.{.rm},
-        .rex = .{ .b = 0 },
-        .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 5 } }
-    },
-    .{
-        .opcode = .{.other = &.{0x69} },
-        .operands = &.{.reg, .rm, .imm},
-        .rex = .{ .r = 0, .b = 1 },
-        .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
-        .imm_max = 4,
-        .imm_min = 2,
-    },
-    .{
-        .opcode = .{.s16 = &.{0x6B}, .s32 = &.{0x6B}, .s64 = &.{0x6B}},
-        .operands = &.{.reg, .rm, .imm},
-        .rex = .{ .r = 0, .b = 1 },
-        .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
-        .imm_max = 1,
-    }
-};
-pub fn generate_jcc(condition: u8) []const Emitter.Encoding{
-    return &.{
-        .{
-            .rex64 = false,
-            .opcode = .{.other = &.{0x0F, condition} },
-            .operands = &.{.imm},
-            .modr = .{ .rm = .none, .reg = .none },
-            .imm_max = 4,
-            .size = 4
+        .rex = .{.r = 0, .b = 1 },
+        .modr = .{
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 1 }
         }
-    };
-}
-
-pub fn generate_setcc(condition: u8) []const Emitter.Encoding{
-    return &.{
-       .{
-            .rex64 = false,
-            .opcode = .{.other = &.{0x0F, condition} },
-            .operands = &.{.rm},
-            .rex = .{.b = 0},
-            .modr = .{ .rm = .{. operand = 0}, .reg = .none },
-            .imm_max = 4,
-            .size = 4
-        }
-    };
-}
-pub const Jcc = struct {
-    pub const Ja    = 0x87;
-    pub const Jae   = 0x83;
-    pub const Jb    = 0x82;
-    pub const Jbe   = 0x86;
-    pub const Jc    = 0x82;
-    pub const Je    = 0x84;
-    pub const Jz    = 0x84;
-    pub const Jg    = 0x8F;
-    pub const Jge   = 0x8D;
-    pub const Jl    = 0x8C;
-    pub const Jle   = 0x8E;
-    pub const Jna   = 0x86;
-    pub const Jnae  = 0x82;
-    pub const Jnb   = 0x83;
-    pub const Jnbe  = 0x87;
-    pub const Jnc   = 0x83;
-    pub const Jne   = 0x85;
-    pub const Jng   = 0x8E;
-    pub const Jnge  = 0x8C;
-    pub const Jnl   = 0x8D;
-    pub const Jnle  = 0x8F;
-    pub const Jno   = 0x81;
-    pub const Jnp   = 0x8B;
-    pub const Jns   = 0x89;
-    pub const Jnz   = 0x85;
-    pub const Jo    = 0x80;
-    pub const Jp    = 0x8A;
-    pub const Jpe   = 0x8A;
-    pub const Jpo   = 0x8B;
-    pub const Js    = 0x88;
+    }
 };
 
-pub const Setcc = struct {
-    pub const A    = 0x97;
-    pub const AE   = 0x93;
-    pub const B    = 0x92;
-    pub const BE   = 0x96;
-    pub const C    = 0x92;
-    pub const E    = 0x94;
-    pub const Z    = 0x94;
-    pub const G    = 0x9F;
-    pub const GE   = 0x9D;
-    pub const L    = 0x9C;
-    pub const LE   = 0x9E;
-    pub const NA   = 0x96;
-    pub const NAE  = 0x92;
-    pub const NB   = 0x93;
-    pub const NBE  = 0x97;
-    pub const NC   = 0x93;
-    pub const NE   = 0x95;
-    pub const NG   = 0x9E;
-    pub const NGE  = 0x9C;
-    pub const NL   = 0x9D;
-    pub const NLE  = 0x9F;
-    pub const NO   = 0x91;
-    pub const NP   = 0x9B;
-    pub const NS   = 0x99;
-    pub const NZ   = 0x95;
-    pub const O    = 0x90;
-    pub const P    = 0x9A;
-    pub const PE   = 0x9A;
-    pub const PO   = 0x9B;
-    pub const S    = 0x98;
-};
+// pub const smovq: []const emitter.encoding = &.{
+//     .{
+//         .rex64 = false,
+//         .prefix = 0xf3,
+//         .opcode = .{.s64 = &.{0x0f, 0x7e}},
+//         .operands = &.{.xmm, .xmm_m},
+//         .rex = .{.r = 0, .b = 1},
+//         .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }},
+//         .size  = 8,
+//     },
+//     .{
+//         .rex64 = false,
+//         .prefix = 0x66,
+//         .opcode = .{.s64 = &.{0x0f, 0xd6}},
+//         .operands = &.{.xmm_m, .xmm},
+//         .rex = .{.r = 1, .b = 0},
+//         .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }},
+//         .size = 8 
+//     }
+// };
+
+// pub const cmp: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{ .s8 = &.{0x38}, .other = &.{0x39}},
+//         .operands = &.{.rm, .reg},
+//         .rex = .{ .r = 1, .b = 0},
+//         .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x3a}, .other = &.{0x3b}},
+//         .operands = &.{.reg, .rm},
+//         .rex = .{ .r = 0, .b = 1},
+//         .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
+//         .operands = &.{.rm, .imm},
+//         .rex = .{ .b = 0},
+//         .modr = .{.reg = .{ .fixed = 7 }, .rm = .{ .operand = 0 }},
+//         .imm_max = 4,
+//     },
+// };
+
+// pub const add: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{ .s8 = &.{0x00}, .other = &.{0x01}},
+//         .operands = &.{.rm, .reg},
+//         .rex = .{ .r = 1, .b = 0},
+//         .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x02}, .other = &.{0x03}},
+//         .operands = &.{.reg, .rm},
+//         .rex = .{ .r = 0, .b = 1},
+//         .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
+//         .operands = &.{.rm, .imm},
+//         .rex = .{ .b = 0},
+//         .modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
+//         .imm_max = 4,
+//     },
+// };
+
+// pub const sub: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{ .s8 = &.{0x28}, .other = &.{0x29}},
+//         .operands = &.{.rm, .reg},
+//         .rex = .{ .r = 1, .b = 0},
+//         .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x2a}, .other = &.{0x2b}},
+//         .operands = &.{.reg, .rm},
+//         .rex = .{ .r = 0, .b = 1},
+//         .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x80}, .other = &.{0x81}},
+//         .operands = &.{.rm, .imm},
+//         .rex = .{ .b = 0},
+//         .modr = .{.reg = .{ .fixed = 5 }, .rm = .{ .operand = 0 }},
+//         .imm_max = 4,
+//     },
+// };
+
+// pub const mov: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{ .s8 = &.{0x88}, .other = &.{0x89}},
+//         .operands = &.{.rm, .reg},
+//         .rex = .{ .r = 1, .b = 0},
+//         .modr = .{.reg = .{ .operand = 1 }, .rm = .{ .operand = 0 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0x8a}, .other = &.{0x8b}},
+//         .operands = &.{.reg, .rm},
+//         .rex = .{ .r = 0, .b = 1},
+//         .modr = .{.reg = .{ .operand = 0 }, .rm = .{ .operand = 1 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0xb0}, .other = &.{0xb8}},
+//         .operands = &.{.reg, .imm},
+//         .rex = .{ .b = 0},
+//         .modr = .{.reg = .{ .operand = 0 }}
+//     },
+//     .{
+//         .opcode = .{ .s8 = &.{0xc6}, .other = &.{0xc7}},
+//         .operands = &.{.rm, .imm},
+//         .rex = .{ .b = 0},
+//         .modr = .{.reg = .{ .fixed = 0 }, .rm = .{ .operand = 0 }},
+//         .imm_max = 4,
+//     },
+// };
+
+// pub const push: []const emitter.encoding = &.{
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0xff} },
+//         .operands = &.{.rm},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 6 } }
+//     },
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0x50} },
+//         .operands = &.{.reg},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .none, .reg = .{ .operand = 0 } }
+//     },
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .s8 = &.{0x6a}, .other = &.{0x68} },
+//         .operands = &.{.imm},
+//         .modr = .{ .rm = .none, .reg = .none },
+//         .imm_max = 4 
+//     }
+// };
+
+// pub const pop: []const emitter.encoding = &.{
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0x8f} },
+//         .operands = &.{.rm},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 0 } }
+//     },
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0x58} },
+//         .operands = &.{.reg},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .none, .reg = .{ .operand = 0 } }
+//     }
+// };
+
+// pub const jmp: []const emitter.encoding = &.{
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0xff} },
+//         .operands = &.{.rm},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 4} }
+//     },
+//     .{
+//         .rex64 = false,
+//         .opcode = .{.other = &.{0xe9} },
+//         .operands = &.{.imm},
+//         .modr = .{ .rm = .none, .reg = .none },
+//         .imm_max = 4,
+//         .size = 4
+//     }
+// };
+
+// pub const call: []const emitter.encoding = &.{
+//     .{
+//         .rex64 = false,
+//         .opcode = .{ .other = &.{0xff} },
+//         .operands = &.{.rm},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 2} }
+//     },
+//     .{
+//         .rex64 = false,
+//         .opcode = .{.other = &.{0xe8} },
+//         .operands = &.{.imm},
+//         .modr = .{ .rm = .none, .reg = .none },
+//         .imm_max = 4,
+//         .size = 4
+//     }
+// };
+
+// pub const lea: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{.other = &.{0x8d}},
+//         .operands = &.{.reg, .mem},
+//         .rex = .{.r = 0, .b = 1},
+//         .modr = .{.rm = .{ .operand = 1 }, .reg = .{ .operand = 0 }},
+//     }
+// };
+
+// pub const imul: []const emitter.encoding = &.{
+//     .{
+//         .opcode = .{ .s8 = &.{0xf6},  .other = &.{0xf7} },
+//         .operands = &.{.rm},
+//         .rex = .{ .b = 0 },
+//         .modr = .{ .rm = .{ .operand = 0 }, .reg = .{ .fixed = 5 } }
+//     },
+//     .{
+//         .opcode = .{.other = &.{0x69} },
+//         .operands = &.{.reg, .rm, .imm},
+//         .rex = .{ .r = 0, .b = 1 },
+//         .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
+//         .imm_max = 4,
+//         .imm_min = 2,
+//     },
+//     .{
+//         .opcode = .{.s16 = &.{0x6b}, .s32 = &.{0x6b}, .s64 = &.{0x6b}},
+//         .operands = &.{.reg, .rm, .imm},
+//         .rex = .{ .r = 0, .b = 1 },
+//         .modr = .{ .rm = .{ .operand = 1 }, .reg = .{ .operand = 0 } },
+//         .imm_max = 1,
+//     }
+// };
+// pub fn generate_jcc(condition: u8) []const emitter.encoding{
+//     return &.{
+//         .{
+//             .rex64 = false,
+//             .opcode = .{.other = &.{0x0f, condition} },
+//             .operands = &.{.imm},
+//             .modr = .{ .rm = .none, .reg = .none },
+//             .imm_max = 4,
+//             .size = 4
+//         }
+//     };
+// }
+
+// pub fn generate_setcc(condition: u8) []const emitter.encoding{
+//     return &.{
+//        .{
+//             .rex64 = false,
+//             .opcode = .{.other = &.{0x0f, condition} },
+//             .operands = &.{.rm},
+//             .rex = .{.b = 0},
+//             .modr = .{ .rm = .{. operand = 0}, .reg = .none },
+//             .imm_max = 4,
+//             .size = 4
+//         }
+//     };
+// }
+// pub const jcc = struct {
+//     pub const ja    = 0x87;
+//     pub const jae   = 0x83;
+//     pub const jb    = 0x82;
+//     pub const jbe   = 0x86;
+//     pub const jc    = 0x82;
+//     pub const je    = 0x84;
+//     pub const jz    = 0x84;
+//     pub const jg    = 0x8f;
+//     pub const jge   = 0x8d;
+//     pub const jl    = 0x8c;
+//     pub const jle   = 0x8e;
+//     pub const jna   = 0x86;
+//     pub const jnae  = 0x82;
+//     pub const jnb   = 0x83;
+//     pub const jnbe  = 0x87;
+//     pub const jnc   = 0x83;
+//     pub const jne   = 0x85;
+//     pub const jng   = 0x8e;
+//     pub const jnge  = 0x8c;
+//     pub const jnl   = 0x8d;
+//     pub const jnle  = 0x8f;
+//     pub const jno   = 0x81;
+//     pub const jnp   = 0x8b;
+//     pub const jns   = 0x89;
+//     pub const jnz   = 0x85;
+//     pub const jo    = 0x80;
+//     pub const jp    = 0x8a;
+//     pub const jpe   = 0x8a;
+//     pub const jpo   = 0x8b;
+//     pub const js    = 0x88;
+// };
+
+// pub const setcc = struct {
+//     pub const a    = 0x97;
+//     pub const ae   = 0x93;
+//     pub const b    = 0x92;
+//     pub const be   = 0x96;
+//     pub const c    = 0x92;
+//     pub const e    = 0x94;
+//     pub const z    = 0x94;
+//     pub const g    = 0x9f;
+//     pub const ge   = 0x9d;
+//     pub const l    = 0x9c;
+//     pub const le   = 0x9e;
+//     pub const na   = 0x96;
+//     pub const nae  = 0x92;
+//     pub const nb   = 0x93;
+//     pub const nbe  = 0x97;
+//     pub const nc   = 0x93;
+//     pub const ne   = 0x95;
+//     pub const ng   = 0x9e;
+//     pub const nge  = 0x9c;
+//     pub const nl   = 0x9d;
+//     pub const nle  = 0x9f;
+//     pub const no   = 0x91;
+//     pub const np   = 0x9b;
+//     pub const ns   = 0x99;
+//     pub const nz   = 0x95;
+//     pub const o    = 0x90;
+//     pub const p    = 0x9a;
+//     pub const pe   = 0x9a;
+//     pub const po   = 0x9b;
+//     pub const s    = 0x98;
+// };

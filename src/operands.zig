@@ -33,7 +33,7 @@ pub const Memory = struct{
     ///Base for addressing, must be set if index is null  
     base: ?Register = null,
     ///Index for addressing, must be set if base is null
-    index: ?.Register = null,
+    index: ?Register = null,
     ///SIB Scale, 1, 2, 4, or 8 
     scale: Scale = Scale.scale1,
     ///Displacement for addressing, cannot be set by itself
@@ -50,20 +50,8 @@ pub const Operand = union(enum){
 
     ///An immediate value, 
     ///`size` represents the encoded immediate size in bytes 
-    Immediate: struct {value: u64, size: u8},
+    Immediate: struct {value: u64, size: Size},
 
     ///A memory operand
     Memory: Memory,
-
-    ///Returns the size of an operand
-    fn get_size(self: *const Operand) u8{
-        if(self.* == .Register){
-            return self.Register.size;
-        }
-        else if(self.* == .Immediate){
-            return self.Immediate.size;
-        }else{
-            return self.Memory.size;
-        }
-    }
 };

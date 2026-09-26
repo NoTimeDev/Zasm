@@ -50,13 +50,15 @@ pub const ModrSpec = struct {
 };
 
 /// Encoding for opcode
-/// s8 - the opcode if the operands are a byte
-/// s16 - the opcode if the operands are a word
-/// s32 - the opcode if the operands are a dword
-/// s64 - the opcode if the operands are a qword
+/// s8 - the opcode emitted if the operands are a byte
+/// s16 - the opcode emitted if the operands are a word
+/// s32 - the opcode emitted if the operands are a dword
+/// s64 - the opcode emitted if the operands are a qword
 /// If a field is set to null, it means the emmitter will not generate
 /// an instruction if the operands size match that field
+/// if `all` is defined it is used as the opcode regardless of the size of the operands 
 pub const OpCode = struct {
+    all: ?[]const u8 = null,
     s64: ?[]const u8 = null,
     s32: ?[]const u8 = null,
     s16: ?[]const u8 = null,
@@ -71,29 +73,37 @@ pub const Evex = struct{
 
 };
 
-/// A prefix to be generated before an instruction this 
-pub const Prefix = union(enum){
-    sse: u8,
-    vex: Vex,
-    evex: Evex,
-    rex,
-    none 
+/// A prefix to be generated before an instruction
+pub const Prefix = struct{
+    pub const LegacyPrefix = packed struct(u8){
+        /// Decides if a rex byte MUST be generated
+        rex: bool = false,
+        /// This only generates if the operands are 16 bit 
+        operand_size: bool = false,
+        _: u6 = 0
+    };
+    pub const PrefixEncoding = union(enum){
+        sse: u8,
+        vex: Vex,
+        evex: Evex,
+        none 
+    };
+
+    legacy: LegacyPrefix,
+    prefix: PrefixEncoding,
 };
 
 /// An encoding for a specific instructions operand group(8 bit && 16-64 bit)
 /// eg `mov reg/mem, reg`
 pub const Encoding = struct {
-    prefix: Prefix = .rex,
+    prefix: Prefix,
     opcode: OpCode,
     operands: []const OperandKind,
-
     rex: ?RexSpec = null,
-    
     modr: ?ModrSpec = null,
-    
     imm_max: u8 = 8,
-    
     imm_min: u8 = 1,
+    size: ?struct{ size: @import("operands.zig").Size, from: u8} = null,
 };
 
 
