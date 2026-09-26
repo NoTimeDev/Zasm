@@ -3,6 +3,40 @@ const Encoding = @import("encoding.zig");
 const Size = @import("root.zig").Size;
 
 pub const movq: []const Encoding.Encoding = &.{
+    .{  
+        .prefix = .{
+            .prefix = .{ 
+                .rex = .{
+                    .w = 1,
+                    .r = 0,
+                    .b = 1,
+                    .x = 1
+                }
+            },
+            .legacy = .{ .operand_size = true }
+        },
+        .operands = &.{.xmm, .gpr_m},
+        .opcode = .{.s128 = &.{0x0F, 0x6E}},
+        .modr = .{
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 1 }
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{Size.qword}
+                }
+            }
+        }
+    },
     .{
         .prefix = .{ 
             .prefix = .{ .sse = 0xF3 },
@@ -10,7 +44,6 @@ pub const movq: []const Encoding.Encoding = &.{
         },
         .opcode = .{ .s128 = &.{0x0F, 0x7E} },
         .operands = &.{.xmm, .xmm_m},
-        .rex = .{.r = 0, .b = 1 },
         .modr = .{
             .reg = .{ .operand = 0 },
             .rm = .{ .operand = 1 }
@@ -42,7 +75,6 @@ pub const movq: []const Encoding.Encoding = &.{
         },
         .opcode = .{ .s128 = &.{0x0F, 0xd6} },
         .operands = &.{.xmm_m, .xmm},
-        .rex = .{.r = 1, .b = 0 },
         .modr = .{
             .reg = .{ .operand = 1 },
             .rm = .{ .operand = 0}

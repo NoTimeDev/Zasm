@@ -8,6 +8,7 @@ const Size = root.Size;
 /// This struct is used to manage these bytes across platforms & architechures
 pub const Function = struct{
     code: []u8,
+    len: usize,
 
     /// Returns a function pointer to the allocated memory
     pub fn asptr(self: *const Function, comptime funcptr: type) funcptr{
@@ -16,9 +17,10 @@ pub const Function = struct{
 
     /// Creates a new Function
     /// `code` is expected to be executable memory
-    fn init(code: []u8) Function{
+    fn init(code: []u8, len: usize) Function{
         return Function{
             .code = code,
+            .len = len
         };
     }
 
@@ -37,7 +39,7 @@ pub const Function = struct{
             const cwd = std.Io.Dir.cwd();
             var file = try cwd.createFile(io, filename, .{});
             defer file.close(io);
-            try file.writeStreamingAll(io, self.code[0..self.code.len]);
+            try file.writeStreamingAll(io, self.code[0..self.len]);
         }
     }
 
@@ -178,28 +180,22 @@ pub const Emitter = struct{
             return;
         }
 
-        switch(encoding.prefix.prefix){
-            .sse => |prefix|{
-                try self.bytes.append(self.allocator, prefix);
-            }, 
-            .none => {},
-            else => {
-                @panic("Unsupported encoding fix me!!!!");
-            }
+        if(encoding.prefix.legacy.operand_size){
+            try self.bytes.append(self.allocator, 0x66);
         }
 
         const size = get_size(&operands[encoding.instrsize]); 
-        if(encoding.prefix.legacy.rex){
-            var rex_w: u1 = 0;
-            var rex_r: u1 = 0;
-            var rex_x: u1 = 0;
-            var rex_b: u1 = 0;
+        switch(encoding.prefix.prefix){
+            .sse => |prefix|{
+                try self.bytes.append(self.allocator, prefix);
+            },
+            .rex => |rex|{
+                var rex_r: u1 = 0;
+                var rex_x: u1 = 0;
+                var rex_b: u1 = 0;
 
-            if(encoding.rex)|rex|{
                 if(rex.r)|r|{
-                    if(operands[r] == .Register){
-                        rex_r = @intFromBool(operands[r].Register.rex);   
-                    }
+                    rex_r = @intFromBool(operands[r].Register.rex);   
                 }
                 if(rex.b)|b|{
                     if(operands[b] == .Register){
@@ -212,20 +208,19 @@ pub const Emitter = struct{
                             0;
                     }
                 }
-            }
-            rex_w = if(size == .qword) 1 else 0;
-            rex_x = 0;
-            if(encoding.modr)|modr|{
-                if(modr.rm == .operand and operands[modr.rm.operand] == .Memory and operands[modr.rm.operand].Memory.index != null){
-                    rex_x = @intFromBool(operands[modr.rm.operand].Memory.index.?.rex);
+                if(rex.x)|x|{
+                    if(operands[x] == .Memory){
+                        rex_x = @intFromBool(operands[x].Memory.index.?.rex);
+                    }
                 }
+                try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
+            },
+            .none => {},
+            else => {
+                @panic("Unsupported encoding fix me!!!!");
             }
-            try self.bytes.append(self.allocator, bits.create_rex(rex_w, rex_r, rex_x, rex_b));
         }
 
-        if(encoding.prefix.legacy.operand_size and size == .word){
-            try self.bytes.append(self.allocator, 0x66);
-        }
 
         const opcode: []const u8 = if(encoding.opcode.all)|all|
             all
@@ -476,7 +471,7 @@ pub const Emitter = struct{
             return root.AsmError.MprotectFailed;
         }
 
-        return Function.init(ptr);
+        return Function.init(ptr, self.bytes.items.len);
     }
 
     /// Returns a Function, this clears the current bytes and binded labels 

@@ -23,13 +23,10 @@ pub const OperandKind = enum {
 /// The REX.W and REX.X bits are determined automatically from the
 /// instruction and its operands. `r` and `b` specify which operands
 /// are used to determine the REX.R and REX.B bits.
-pub const RexSpec = struct {
-    /// Index of the operand used to determine the REX.R bit
-    /// `null` means the REX.R bit is set to 0
+pub const Rex = struct {
+    w: u1 = 0,
     r: ?u4 = null,
-
-    /// Index of the operand used to determine the REX.B bit
-    /// `null` means the REX.B bit is set to 0 
+    x: ?u4 = null,
     b: ?u4 = null,
 };
 
@@ -84,13 +81,11 @@ pub const Evex = struct{
 /// A prefix to be generated before an instruction
 pub const Prefix = struct{
     pub const LegacyPrefix = packed struct(u8){
-        /// Decides if a rex byte MUST be generated
-        rex: bool = false,
-        /// This only generates if the operands are 16 bit 
         operand_size: bool = false,
-        _: u6 = 0
+        _: u7 = 0
     };
     pub const PrefixEncoding = union(enum){
+        rex: Rex, 
         sse: u8,
         vex: Vex,
         evex: Evex,
@@ -112,8 +107,7 @@ pub const Encoding = struct {
     prefix: Prefix,
     opcode: OpCode,
     operands: []const OperandKind,
-    rex: ?RexSpec = null,
     modr: ?ModrSpec = null,
-    instrsize: u8 = 0,
+    instrsize: u4 = 0,
     size_constraints: []const []const SizeConstraint, 
 };
