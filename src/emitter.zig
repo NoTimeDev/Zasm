@@ -182,12 +182,122 @@ pub const Emitter = struct{
 
         if(encoding.prefix.legacy.operand_size){
             try self.bytes.append(self.allocator, 0x66);
+        }   
+        if(encoding.prefix.legacy.sse)|sse|{
+            try self.bytes.append(self.allocator, @intFromEnum(sse));
         }
-
         const size = get_size(&operands[encoding.instrsize]); 
         switch(encoding.prefix.prefix){
-            .sse => |prefix|{
-                try self.bytes.append(self.allocator, prefix);
+            .vex => |vex|{
+                //0 -> 2 bytes 1 -> 3 bytes 
+                var vex_r: u1 = 1;
+                var vex_x: u1 = 1;
+                var vex_b: u1 = 1;
+
+                if(vex.r)|r|{
+                    vex_r = ~@intFromBool(operands[r].Register.rex);   
+                }
+                if(vex.b)|b|{
+                    if(operands[b] == .Register){
+                        vex_b = ~@intFromBool(operands[b].Register.rex);   
+                    }
+                    if(operands[b] == .Memory){
+                        vex_b = if(operands[b].Memory.base)|base|
+                            ~@intFromBool(base.rex)
+                        else 
+                            1;
+                    }
+                }
+                if(vex.x)|x|{
+                    if(operands[x] == .Memory){
+                        vex_x = ~@intFromBool(operands[x].Memory.index.?.rex);
+                    }
+                }
+                if(vex.use == .bytes3){
+                    try self.bytes.append(self.allocator, 0xC4);
+                    var vex_byte2: u8 = 0;
+                    var vex_byte3: u8 = 0;
+                    bits.setBit(&vex_byte2, 7, vex_r);
+                    bits.setBit(&vex_byte2, 6, vex_x);
+                    bits.setBit(&vex_byte2, 5, vex_b);
+
+                    const intv: u5 = @intFromEnum(vex.map);
+                    bits.setBit(&vex_byte2, 4, bits.getBit(intv, 4));
+                    bits.setBit(&vex_byte2, 3, bits.getBit(intv, 3));
+                    bits.setBit(&vex_byte2, 2, bits.getBit(intv, 2));
+                    bits.setBit(&vex_byte2, 1, bits.getBit(intv, 1));
+                    bits.setBit(&vex_byte2, 0, bits.getBit(intv, 0));
+                    try self.bytes.append(self.allocator, vex_byte2);
+               
+                    if(vex.w)|w|{
+                        bits.setBit(&vex_byte3, 7, w);
+                    } 
+                    const vvvv: u4 = if(vex.vvvv)|vpos|
+                        ~@as(u4, @truncate(operands[vpos].Register.encoding))
+                    else
+                        0b1111;
+
+                    bits.setBit(&vex_byte3, 6, bits.getBit(vvvv, 3));
+                    bits.setBit(&vex_byte3, 5, bits.getBit(vvvv, 2));
+                    bits.setBit(&vex_byte3, 4, bits.getBit(vvvv, 1));
+                    bits.setBit(&vex_byte3, 3, bits.getBit(vvvv, 0));
+
+                    switch(vex.L){
+                        .s128 => {
+                            bits.setBit(&vex_byte3, 2, 0);
+                        },
+                        .s256 => {
+                            bits.setBit(&vex_byte3, 2, 1);
+                        },
+                        .ignored => {}
+                    }
+
+                    const ppbits: u2 = switch (vex.pp) {
+                        .p66 => 0b01,
+                        .pF3 => 0b10,
+                        .pF2 => 0b11,
+                        .none => 0
+                    };
+
+                    bits.setBit(&vex_byte3, 1, bits.getBit(ppbits, 1));
+                    bits.setBit(&vex_byte3, 0, bits.getBit(ppbits, 0));
+                    try self.bytes.append(self.allocator, vex_byte3);
+                }else{
+                    try self.bytes.append(self.allocator, 0xC5);
+                    var vex_byte2: u8 = 0;
+                    bits.setBit(&vex_byte2, 7, vex_r);
+                    
+                    const vvvv: u4 = if(vex.vvvv)|vpos|
+                        ~@as(u4, @truncate(operands[vpos].Register.encoding))
+                    else
+                        0b1111;
+
+                    bits.setBit(&vex_byte2, 6, bits.getBit(vvvv, 3));
+                    bits.setBit(&vex_byte2, 5, bits.getBit(vvvv, 2));
+                    bits.setBit(&vex_byte2, 4, bits.getBit(vvvv, 1));
+                    bits.setBit(&vex_byte2, 3, bits.getBit(vvvv, 0));
+
+                    switch(vex.L){
+                        .s128 => {
+                            bits.setBit(&vex_byte2, 2, 0);
+                        },
+                        .s256 => {
+                            bits.setBit(&vex_byte2, 2, 1);
+                        },
+                        .ignored => {}
+                    }
+
+                    const ppbits: u2 = switch (vex.pp) {
+                        .p66 => 0b01,
+                        .pF3 => 0b10,
+                        .pF2 => 0b11,
+                        .none => 0
+                    };
+
+                    bits.setBit(&vex_byte2, 1, bits.getBit(ppbits, 1));
+                    bits.setBit(&vex_byte2, 0, bits.getBit(ppbits, 0));
+                    try self.bytes.append(self.allocator, vex_byte2);
+                }
             },
             .rex => |rex|{
                 var rex_r: u1 = 0;
@@ -213,7 +323,11 @@ pub const Emitter = struct{
                         rex_x = @intFromBool(operands[x].Memory.index.?.rex);
                     }
                 }
-                try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
+                if(encoding.prefix.legacy.forcerex){
+                    try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
+                }else if( (rex.w + rex_r + rex_x + rex_b) != 0){
+                    try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
+                }
             },
             .none => {},
             else => {

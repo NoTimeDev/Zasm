@@ -52,7 +52,14 @@ test "Testing code lol"{
     var e: emitter.Emitter = .init(allocator);
     defer e.deinit();
 
-    try e.emit(Instructions.movq, &.{ .{.Register = .xmm0}, .{.Register = .rax} });     
+    const mem: Memory = .{
+        .size = .oword,
+        .base = .rax,
+        .displacement = 10,
+        .scale = .scale2,
+        .index = .rbx
+    };
+    try e.emit(Instructions.pmulld, &.{ .{.Register = .xmm0}, .{.Register = .xmm14}, .{.Memory = mem} });     
     
     const func = try e.takefunc();
     try func.write_bytes("code.bin", allocator);

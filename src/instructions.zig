@@ -2,6 +2,103 @@
 const Encoding = @import("encoding.zig");
 const Size = @import("root.zig").Size;
 
+pub const pmulld: []const Encoding.Encoding = &.{
+   .{
+        .prefix = .{
+            .prefix = .{
+                .vex = .{
+                    .use = .bytes3,
+                    .pp = .p66,
+                    .L = .s128,
+                    .vvvv = 1,
+                    .r = 0,
+                    .map = .m0F38
+                }
+            },
+            .legacy = .{}
+        },
+        .opcode = .{ .s128 = &.{0x40} },
+        .operands = &.{.xmm, .xmm, .xmm_m},
+        .modr = .{
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 2 },
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{Size.oword}
+                }
+            }
+        }
+    }
+};
+
+pub const addss: []const Encoding.Encoding = &.{
+    .{
+        .prefix = .{
+            .prefix = .{
+                .vex = .{
+                    .use = .bytes2,
+                    .pp = .pF3,
+                    .map = .m0F,
+                    .r = 0,
+                    .vvvv = 1,
+                } 
+            },
+            .legacy = .{}
+        },
+        .opcode = .{ .s128 = &.{0x58} },
+        .operands = &.{.xmm, .xmm, .xmm_m},
+        .modr = .{
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 2 },
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .cond = .mem,
+                    .sizes = &.{
+                        Size.dword
+                    }
+                },
+                .{
+                    .sizes = &.{Size.oword}
+                }
+            }
+        }
+    }
+};
+
 pub const movq: []const Encoding.Encoding = &.{
     .{  
         .prefix = .{
@@ -39,8 +136,15 @@ pub const movq: []const Encoding.Encoding = &.{
     },
     .{
         .prefix = .{ 
-            .prefix = .{ .sse = 0xF3 },
-            .legacy = .{}
+            .prefix = .{ 
+                .rex = .{
+                    .w = 0,
+                    .r = 0,
+                    .b = 1,
+                    .x = 1
+                }
+            },
+            .legacy = .{.sse = .pF3}
         },
         .opcode = .{ .s128 = &.{0x0F, 0x7E} },
         .operands = &.{.xmm, .xmm_m},
@@ -70,8 +174,8 @@ pub const movq: []const Encoding.Encoding = &.{
     },
     .{
         .prefix = .{ 
-            .prefix = .{ .sse = 0x66 },
-            .legacy = .{}
+            .prefix = .none,
+            .legacy = .{ .sse = .p66 }
         },
         .opcode = .{ .s128 = &.{0x0F, 0xd6} },
         .operands = &.{.xmm_m, .xmm},

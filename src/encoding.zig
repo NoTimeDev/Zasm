@@ -70,8 +70,42 @@ pub const OpCode = struct {
     s8: ?[]const u8 = null,
 };
 
-pub const Vex = struct{
+pub const SsePrefix = enum(u8){
+    none = 0,
+    p66 = 0x66,
+    pF3 = 0xF3,
+    pF2 = 0xF2
+};
 
+pub const VexPrefixSize = enum {
+    bytes2,
+    bytes3
+};
+
+pub const VexLen = enum{
+   s128,
+   s256,
+   ignored,
+};
+
+pub const OpCodeMap = enum(u5){
+    ignored = 0,
+    m0F = 0b00001,
+    m0F38 = 0b00010,
+    m0F3A = 0b00011
+};
+
+pub const Vex = struct{
+    use: VexPrefixSize,
+    w: ?u1 = 0,
+    r: ?u4 = null,
+    x: ?u4 = null,
+    b: ?u4 = null,
+    
+    vvvv: ?u4 = null,
+    L: VexLen = .ignored,
+    pp: SsePrefix,
+    map: OpCodeMap
 };
 
 pub const Evex = struct{
@@ -80,13 +114,13 @@ pub const Evex = struct{
 
 /// A prefix to be generated before an instruction
 pub const Prefix = struct{
-    pub const LegacyPrefix = packed struct(u8){
+    pub const LegacyPrefix = struct{
         operand_size: bool = false,
-        _: u7 = 0
+        sse: ?SsePrefix = null,
+        forcerex: bool = false
     };
     pub const PrefixEncoding = union(enum){
         rex: Rex, 
-        sse: u8,
         vex: Vex,
         evex: Evex,
         none 
