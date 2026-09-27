@@ -10,15 +10,26 @@ pub fn setBit(value: *u8, bit: u3, to: u1) void {
 }
 
 /// Gets a bit from a u8 
-pub fn getBit(value: u8, index: u3) u1 {
+pub inline fn getBit(value: u8, index: u3) u1 {
     return @truncate(value >> index);
 }
 
 /// Helper function to create rex
-pub fn create_rex(w: u1, r: u1, x: u1, b: u1) u8{
+pub inline fn create_rex(w: u1, r: u1, x: u1, b: u1) u8{
     return 0b01000000
         | (@as(u8, w) << 3)
         | (@as(u8, r) << 2)
         | (@as(u8, x) << 1)
         | @as(u8, b);
 }
+
+/// Gets the rex bit from a register(u5)
+pub inline fn get_rex(reg: u5) u1{
+    return @truncate(reg >> 3);
+}
+
+/// Gets evex extension bit
+pub inline fn get_evex(reg: u5) u1{
+    return @truncate(reg >> 4);
+}
+

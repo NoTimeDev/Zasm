@@ -19,6 +19,8 @@ pub const AsmError = error{
     RelOutOfRange,
     /// Non gpr value in a Memory operand
     NonGPRInMem,
+    /// <RegKind>16+ found in Memory operand
+    ExtendedRegInMem,
     /// encoding.OpCode.all is not defined, when s8-s64 arent defined
     /// Or if instruction encoding expects encoding.OpCode.all 
     AllNotDefined,
@@ -26,6 +28,8 @@ pub const AsmError = error{
     ModrMisMatch,
     /// If base and index are null in a memory field
     NullBaseAndIndex,
+    /// Tried to create a 512 instruction using vex 
+    s512InVex
 };
 
 ///Size used to match operands to their instruction
@@ -38,6 +42,8 @@ pub const Size = enum(u8){
     dword = 4,
     /// Quadword - 8 bytes
     qword = 8,
+    /// Tenbyte - 10 bytes
+    tbyte = 10,
     /// OctoWord - 16 bytes
     oword = 16,
     /// YmmWord - 32 bytes 
@@ -52,14 +58,7 @@ test "Testing code lol"{
     var e: emitter.Emitter = .init(allocator);
     defer e.deinit();
 
-    const mem: Memory = .{
-        .size = .oword,
-        .base = .rax,
-        .displacement = 10,
-        .scale = .scale2,
-        .index = .rbx
-    };
-    try e.emit(Instructions.pmulld, &.{ .{.Register = .xmm0}, .{.Register = .xmm14}, .{.Memory = mem} });     
+    try e.emit(Instructions.pmulld, &.{ .{.Register = .ymm2}, .{.Register = .ymm7}, .{.Register = .ymm1} });     
     
     const func = try e.takefunc();
     try func.write_bytes("code.bin", allocator);

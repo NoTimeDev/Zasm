@@ -3,6 +3,8 @@ const bits = @import("bits.zig");
 const ArrayList = std.ArrayList;
 const root = @import("root.zig");
 const Size = root.Size;
+const regitser = @import("register.zig");
+
 
 /// Holds the bytes for a function, which is written to executable memory
 /// This struct is used to manage these bytes across platforms & architechures
@@ -99,11 +101,16 @@ pub const Emitter = struct{
     fn verifymem(mem: root.operands.Memory) !void{
         if(mem.base)|base|{
             if(base.class != .gpr){return root.AsmError.NonGPRInMem;}
+            if(base.encoding > 15){
+                return root.AsmError.ExtendedRegInMem;
+            }
         }
         if(mem.index)|index|{
             if(index.class != .gpr){return root.AsmError.NonGPRInMem;}
+            if(index.encoding > 15){
+                return root.AsmError.ExtendedRegInMem;
+            }
         }
-
         if(mem.base == null and mem.index == null){
             return root.AsmError.NullBaseAndIndex;
         }
@@ -114,6 +121,12 @@ pub const Emitter = struct{
         if(encoding.operands.len != operands.len){
             return false;
         }
+        const supports_register_extened: bool = 
+            if(encoding.prefix.prefix == .evex) 
+                true
+            else
+                false;
+
         // opk -> operand kind, op -> operand
         for(encoding.operands, operands, encoding.size_constraints)|opk, op, constriants|{
             
@@ -132,38 +145,44 @@ pub const Emitter = struct{
                     }
                 }
             }
+                
+            if(op == .Memory){try verifymem(op.Memory);}
             if(!matched) return false;
-            if(opk == .gpr and op != .Register){
-                return false;
-            }
-
-            else if(opk == .imm and op != .Immediate){
+            if(opk == .imm and op != .Immediate){
                 return false;
             }
             else if(opk == .mem and op != .Memory){
                 return false;
-            }
-            else if(opk == .gpr_m){
-                if(op != .Register and op != .Memory){
-                    return false;
-                }
-                if(op == .Register and op.Register.class != .gpr){return false;}
-            }
-            else if(opk == .xmm){
-                if(op != .Register){
-                    return false;
-                }
-                if(op.Register.class != .xmm){
-                    return false;
-                }
-            }
-            else if(opk == .xmm_m){
-                if(op != .Register and op != .Memory){
-                    return false;
-                }
-                if(op == .Register and op.Register.class != .xmm){return false;}
             }else{
-                if(op == .Memory){try verifymem(op.Memory);}
+                // Must be the registers!
+                const regkind: regitser.RegisterClass = switch(opk){
+                    .gpr_m, .gpr => .gpr,
+                    .mmx_m, .mmx => .mmx,
+                    .xmm_m, .xmm => .xmm,
+                    .ymm_m, .ymm => .ymm,
+                    .zmm_m, .zmm => .zmm,
+                    .x87 => .x87,
+                    else => unreachable
+                };
+                switch(opk){
+                    .gpr_m, .mmx_m, .xmm_m, .ymm_m, .zmm_m => {
+                        if(op != .Register and op != .Memory){
+                            return false;
+                        }
+                        if(op.Register.class != regkind){
+                            return false; 
+                        }
+                        if(op.Register.encoding > 15 and supports_register_extened == false){
+                            return false;
+                        }
+                    },
+                    else => {
+                        //reg register
+                        if(op.Register.class != regkind){
+                            return false; 
+                        }
+                    }
+                }
             }
         }
         return true;
@@ -189,28 +208,31 @@ pub const Emitter = struct{
         const size = get_size(&operands[encoding.instrsize]); 
         switch(encoding.prefix.prefix){
             .vex => |vex|{
+                if(vex.L == .s512){
+                    return root.AsmError.s512InVex;
+                }
                 //0 -> 2 bytes 1 -> 3 bytes 
                 var vex_r: u1 = 1;
                 var vex_x: u1 = 1;
                 var vex_b: u1 = 1;
 
                 if(vex.r)|r|{
-                    vex_r = ~@intFromBool(operands[r].Register.rex);   
+                    vex_r = ~bits.get_rex(operands[r].Register.encoding);   
                 }
                 if(vex.b)|b|{
                     if(operands[b] == .Register){
-                        vex_b = ~@intFromBool(operands[b].Register.rex);   
+                        vex_b = ~bits.get_rex(operands[b].Register.encoding);   
                     }
                     if(operands[b] == .Memory){
                         vex_b = if(operands[b].Memory.base)|base|
-                            ~@intFromBool(base.rex)
+                            ~bits.get_rex(base.encoding)
                         else 
                             1;
                     }
                 }
                 if(vex.x)|x|{
                     if(operands[x] == .Memory){
-                        vex_x = ~@intFromBool(operands[x].Memory.index.?.rex);
+                        vex_x = ~bits.get_rex(operands[x].Memory.index.?.encoding);
                     }
                 }
                 if(vex.use == .bytes3){
@@ -249,7 +271,7 @@ pub const Emitter = struct{
                         .s256 => {
                             bits.setBit(&vex_byte3, 2, 1);
                         },
-                        .ignored => {}
+                        else => {}    
                     }
 
                     const ppbits: u2 = switch (vex.pp) {
@@ -284,7 +306,7 @@ pub const Emitter = struct{
                         .s256 => {
                             bits.setBit(&vex_byte2, 2, 1);
                         },
-                        .ignored => {}
+                        else => {} 
                     }
 
                     const ppbits: u2 = switch (vex.pp) {
@@ -305,27 +327,27 @@ pub const Emitter = struct{
                 var rex_b: u1 = 0;
 
                 if(rex.r)|r|{
-                    rex_r = @intFromBool(operands[r].Register.rex);   
+                    rex_r = bits.get_rex(operands[r].Register.encoding);   
                 }
                 if(rex.b)|b|{
                     if(operands[b] == .Register){
-                        rex_b = @intFromBool(operands[b].Register.rex);   
+                        rex_b = bits.get_rex(operands[b].Register.encoding);   
                     }
                     if(operands[b] == .Memory){
                         rex_b = if(operands[b].Memory.base)|base|
-                            @intFromBool(base.rex)
+                            bits.get_rex(base.encoding)
                         else 
                             0;
                     }
                 }
                 if(rex.x)|x|{
                     if(operands[x] == .Memory){
-                        rex_x = @intFromBool(operands[x].Memory.index.?.rex);
+                        rex_x = bits.get_rex(operands[x].Memory.index.?.encoding);
                     }
                 }
                 if(encoding.prefix.legacy.forcerex){
                     try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
-                }else if( (rex.w + rex_r + rex_x + rex_b) != 0){
+                }else if( (@as(u3, rex.w) + @as(u3, rex_r) + @as(u3, rex_x) + @as(u3, rex_b)) != 0){
                     try self.bytes.append(self.allocator, bits.create_rex(rex.w, rex_r, rex_x, rex_b));
                 }
             },
@@ -343,6 +365,7 @@ pub const Emitter = struct{
             .zword => encoding.opcode.s512.?,
             .yword => encoding.opcode.s256.?,
             .oword => encoding.opcode.s128.?,
+            .tbyte => encoding.opcode.s80.?,
             .qword => encoding.opcode.s64.?,
             .dword => encoding.opcode.s32.?,
             .word => encoding.opcode.s16.?,
@@ -376,7 +399,7 @@ pub const Emitter = struct{
                 const reg = if(modr.reg == .operand)
                     operands[modr.reg.operand].Register.encoding
                 else
-                    @as(u8, modr.reg.fixed);
+                    @as(u5, modr.reg.fixed);
                 
                 const rm = if(modr.rm == .operand)
                     if(operands[modr.rm.operand] == .Register)
@@ -387,7 +410,7 @@ pub const Emitter = struct{
                     else 
                         0
                 else
-                    @as(u8, modr.rm.fixed);
+                    @as(u5, modr.rm.fixed);
                
                 var sibreq: bool = false;
                 if(modr.rm == .operand){

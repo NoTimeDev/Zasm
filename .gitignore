@@ -4,4 +4,6 @@ zig-out/
 *.asm
 *.o
 *.a
+*.py
+*.csv
 docs/

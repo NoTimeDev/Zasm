@@ -2,6 +2,27 @@
 const Encoding = @import("encoding.zig");
 const Size = @import("root.zig").Size;
 
+pub const fadd: []const Encoding.Encoding = &.{
+    .{ 
+        .opcode = .{ .s80 = &.{0xD8} },
+        .operands = &.{.x87},
+        .modr = .{
+            .reg = .{ .fixed = 0 },
+            .rm = .{ .operand = 0 },
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+             &.{
+                .{
+                    .sizes = &.{
+                        Size.tbyte
+                    }
+                }
+             }
+        }
+    }
+};
+
 pub const pmulld: []const Encoding.Encoding = &.{
    .{
         .prefix = .{
@@ -9,7 +30,7 @@ pub const pmulld: []const Encoding.Encoding = &.{
                 .vex = .{
                     .use = .bytes3,
                     .pp = .p66,
-                    .L = .s128,
+                    .L = .s256,
                     .vvvv = 1,
                     .r = 0,
                     .map = .m0F38
@@ -17,8 +38,8 @@ pub const pmulld: []const Encoding.Encoding = &.{
             },
             .legacy = .{}
         },
-        .opcode = .{ .s128 = &.{0x40} },
-        .operands = &.{.xmm, .xmm, .xmm_m},
+        .opcode = .{ .s256 = &.{0x40} },
+        .operands = &.{.ymm, .ymm, .ymm_m},
         .modr = .{
             .reg = .{ .operand = 0 },
             .rm = .{ .operand = 2 },
@@ -28,20 +49,20 @@ pub const pmulld: []const Encoding.Encoding = &.{
             &.{
                 .{
                     .sizes = &.{
-                        Size.oword
+                        Size.yword
                     }
                 }
             },
             &.{
                 .{
                     .sizes = &.{
-                        Size.oword
+                        Size.yword 
                     }
                 }
             },
             &.{
                 .{
-                    .sizes = &.{Size.oword}
+                    .sizes = &.{Size.yword}
                 }
             }
         }
@@ -100,6 +121,63 @@ pub const addss: []const Encoding.Encoding = &.{
 };
 
 pub const movq: []const Encoding.Encoding = &.{
+    .{
+        .opcode = .{ .s64 = &.{0x0F, 0x6F} },
+        .operands = &.{.mmx, .mmx_m},
+        .instrsize = 1,
+        .modr = .{ 
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 1 }
+        },
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.qword 
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{Size.qword}
+                }
+            }
+        }
+    },
+    .{
+        .prefix = .{ 
+            .prefix = .{ 
+                .rex = .{ 
+                    .w = 1,
+                    .r = 0,
+                    .b = 1,
+                    .x = 1
+                }
+            },
+            .legacy = .{},
+        },
+        .opcode = .{ .s64 = &.{0x0F, 0x6E} },
+        .operands = &.{.mmx, .gpr_m},
+        .instrsize = 1,
+        .modr = .{ 
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 1 }
+        },
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.qword 
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{Size.qword}
+                }
+            }
+        }
+    },
     .{  
         .prefix = .{
             .prefix = .{ 
