@@ -1,4 +1,4 @@
-/// Helper fuctions to manipulate bits 
+///! Helper fuctions to manipulate bits 
 
 /// Sets a bit in a u8 to 1 or 0 
 pub fn setBit(value: *u8, bit: u3, to: u1) void {

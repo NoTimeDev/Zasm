@@ -134,12 +134,13 @@ pub const Vex = struct{
 };
 
 pub const Evex = struct{
-    use: VexPrefixSize,
-    w: ?u1 = 0,
+    w: u1 = 0,
     r: ?u4 = null,
     x: ?u4 = null,
     b: ?u4 = null,
+    R: ?u4 = null,
     
+    L: VexLen = .ignored,
     pp: SsePrefix,
     vvvvv: ?u4 = null,
     map: OpCodeMap, 

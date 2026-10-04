@@ -120,6 +120,60 @@ pub const addss: []const Encoding.Encoding = &.{
     }
 };
 
+pub const vaddss: []const Encoding.Encoding = &.{
+    .{
+        .prefix = .{ 
+            .prefix = .{ 
+                .evex = .{
+                    .map = .m0F,
+                    .pp = .pF3,
+                    .w = 0,
+                    .x = 2,
+                    .r = 0,
+                    .b = 2,
+                    .R = 0,
+                    .vvvvv = 1,
+                }
+            },
+            .legacy = .{}
+        },
+        .opcode = .{ .s128 = &.{0x58} },
+        .operands = &.{.xmm, .xmm, .xmm_m},
+        .modr = .{
+            .reg = .{ .operand = 0 },
+            .rm = .{ .operand = 2 },
+        },
+        .instrsize = 0,
+        .size_constraints = &.{
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword
+                    }
+                }
+            },
+            &.{
+                .{
+                    .sizes = &.{
+                        Size.oword 
+                    }
+                }
+            },
+            &.{
+                .{
+                    .cond = .mem,
+                    .sizes = &.{
+                        Size.dword
+                    }
+                },
+                .{
+                    .sizes = &.{Size.oword}
+                }
+            }
+        }
+    }
+};
+
 pub const movq: []const Encoding.Encoding = &.{
     .{
         .opcode = .{ .s64 = &.{0x0F, 0x6F} },

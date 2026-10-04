@@ -5,6 +5,7 @@ pub const encoding = @import("encoding.zig");
 pub const Operand = operands.Operand;
 pub const Memory = operands.Memory;
 pub const Scale = operands.Scale;
+pub const Modifier = operands.Modifier;
 
 pub const Instructions = @import("instructions.zig");
 pub const Register = @import("register.zig").Register;
@@ -32,9 +33,9 @@ pub const AsmError = error{
     s512InVex
 };
 
-///Size used to match operands to their instruction
+/// Size used to match operands to their instruction
 pub const Size = enum(u8){
-    /// B`yte - 1 byte(lol)
+    /// Byte - 1 byte(lol)
     byte = 1,
     /// Word - 2 bytes
     word = 2,
@@ -58,7 +59,21 @@ test "Testing code lol"{
     var e: emitter.Emitter = .init(allocator);
     defer e.deinit();
 
-    try e.emit(Instructions.pmulld, &.{ .{.Register = .ymm2}, .{.Register = .ymm7}, .{.Register = .ymm1} });     
+    const mem: Memory = .{
+        .size = .dword,
+        .base = .rax,
+        .displacement = 120,
+        .index = .rbx,
+        .scale = .scale4,
+    };
+    try e.emit(Instructions.vaddss, &.{ .{.Register = .xmm19}, .{.Register = .xmm20}, .{.Register = .xmm18} }, null);     
+    try e.emit(Instructions.vaddss, &.{ .{.Register = .xmm16}, .{.Register = .xmm17}, .{.Memory = mem} }, .{
+       .mask = .{
+           .reg = 4,
+           .zero = true,
+       },
+       .rounding = .none,
+    });     
     
     const func = try e.takefunc();
     try func.write_bytes("code.bin", allocator);

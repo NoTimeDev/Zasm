@@ -5,14 +5,13 @@ const Size = @import("root.zig").Size;
 pub const Scale = enum(u2){
     ///SIB Scale 1, `[gpr*1]`
     scale1 = 0b00,
-    ///SIB Scale 2, `[gpr*2]``
+    ///SIB Scale 2, `[gpr*2]`
     scale2 = 0b01,
     ///SIB Scale 4, `[gpr*4]`
     scale4 = 0b10,
     ///SIB Scale 8, `[gpr*8]`
     scale8 = 0b11,
 };
-
 
 ///Struct describing memory operand 
 ///`[ base + index * scale + displacement]`
@@ -30,6 +29,28 @@ pub const Memory = struct{
     displacement: i32 = 0,
     ///Size, used for matching
     size: Size,
+    /// Broadcasting 
+    broadcast: bool = false
+};
+
+pub const Rounding = enum{
+    none,
+    sae,
+    rn,
+    rd,
+    ru,
+    rz,
+};
+
+pub const Mask = struct {
+    reg: u3 = 0,
+    zero: bool = false,
+};
+
+/// Modifier for emit
+pub const Modifier = struct {
+    mask: ?Mask = null,
+    rounding: Rounding
 };
 
 ///The Data the asm operators act upon

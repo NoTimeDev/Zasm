@@ -117,7 +117,7 @@ pub const Emitter = struct{
     }
 
     // Used to match operands against, an Encoding
-    fn match(encoding: root.encoding.Encoding, operands: []const root.operands.Operand) !bool{
+    fn match(encoding: root.encoding.Encoding, operands: []const root.operands.Operand, modifier: ?root.operands.Modifier) !bool{
         if(encoding.operands.len != operands.len){
             return false;
         }
@@ -127,6 +127,9 @@ pub const Emitter = struct{
             else
                 false;
 
+        if(modifier != null and encoding.prefix.prefix != .evex){
+            return false;
+        }
         // opk -> operand kind, op -> operand
         for(encoding.operands, operands, encoding.size_constraints)|opk, op, constriants|{
             
@@ -146,8 +149,13 @@ pub const Emitter = struct{
                 }
             }
                 
-            if(op == .Memory){try verifymem(op.Memory);}
             if(!matched) return false;
+            if(op == .Memory){
+                if(op.Memory.broadcast == true and encoding.prefix.prefix != .evex){
+                    return false;
+                }
+                try verifymem(op.Memory);
+            }
             if(opk == .imm and op != .Immediate){
                 return false;
             }
@@ -169,11 +177,9 @@ pub const Emitter = struct{
                         if(op != .Register and op != .Memory){
                             return false;
                         }
-                        if(op.Register.class != regkind){
-                            return false; 
-                        }
-                        if(op.Register.encoding > 15 and supports_register_extened == false){
-                            return false;
+                        if(op == .Register){
+                            if(op.Register.class != regkind) return false; 
+                            if(op.Register.encoding > 15 and supports_register_extened == false) return false;
                         }
                     },
                     else => {
@@ -189,7 +195,7 @@ pub const Emitter = struct{
     }
    
     /// This function is what actually emits the bytes for an encoding 
-    fn emitencoding(self: *Emitter, encoding: root.encoding.Encoding, operands: []const root.operands.Operand) !void{
+    fn emitencoding(self: *Emitter, encoding: root.encoding.Encoding, operands: []const root.operands.Operand, modifier: ?root.operands.Modifier) !void{
         if(operands.len == 0){
             if(encoding.opcode.all)|bytes|{
                 try self.bytes.appendSlice(self.allocator, bytes);
@@ -205,8 +211,114 @@ pub const Emitter = struct{
         if(encoding.prefix.legacy.sse)|sse|{
             try self.bytes.append(self.allocator, @intFromEnum(sse));
         }
-        const size = get_size(&operands[encoding.instrsize]); 
+        const size = get_size(&operands[encoding.instrsize]);
         switch(encoding.prefix.prefix){
+            .evex => |evex|{
+                try self.bytes.append(self.allocator, 0x62);
+                var evex_r: u1 = 1;
+                var evex_x: u1 = 1;
+                var evex_b: u1 = 1;
+                var evex_R: u1 = 1;
+
+                var evex_byte4: u8 = 0;
+                if(evex.r)|r|{
+                    evex_r = ~bits.get_rex(operands[r].Register.encoding);   
+                }
+                if(evex.b)|b|{
+                    if(operands[b] == .Register){
+                        evex_b = ~bits.get_rex(operands[b].Register.encoding);   
+                    }
+                    if(operands[b] == .Memory){
+                        if(operands[b].Memory.broadcast){
+                            bits.setBit(&evex_byte4, 4, 1);
+                        }
+                        evex_b = if(operands[b].Memory.base)|base|
+                            ~bits.get_rex(base.encoding)
+                        else 
+                            1;
+                    }
+                }
+                if(evex.R)|R|{
+                    evex_R = ~bits.get_evex(operands[R].Register.encoding);   
+                }
+                if(evex.x)|x|{
+                    if(operands[x] == .Memory){
+                        evex_x = ~bits.get_rex(operands[x].Memory.index.?.encoding);
+                    }else{
+                        evex_x = ~bits.get_evex(operands[x].Register.encoding);
+                    }
+                }
+                var evex_byte2: u8 = 0;
+                bits.setBit(&evex_byte2, 7, evex_r);
+                bits.setBit(&evex_byte2, 6, evex_x);
+                bits.setBit(&evex_byte2, 5, evex_b);
+                bits.setBit(&evex_byte2, 4, evex_R);
+
+                const map: u5 = @intFromEnum(evex.map);
+                bits.setBit(&evex_byte2, 2, bits.getBit(map, 2));
+                bits.setBit(&evex_byte2, 1, bits.getBit(map, 1));
+                bits.setBit(&evex_byte2, 0, bits.getBit(map, 0));
+
+                try self.bytes.append(self.allocator, evex_byte2);
+                var evex_byte3: u8 = 0;
+                const vvvv: u5 = if(evex.vvvvv)|vpos|
+                    ~operands[vpos].Register.encoding
+                else
+                    0b11111;
+
+                bits.setBit(&evex_byte3, 7, evex.w);
+                bits.setBit(&evex_byte3, 6, bits.getBit(vvvv, 3));
+                bits.setBit(&evex_byte3, 5, bits.getBit(vvvv, 2));
+                bits.setBit(&evex_byte3, 4, bits.getBit(vvvv, 1));
+                bits.setBit(&evex_byte3, 3, bits.getBit(vvvv, 0));
+                bits.setBit(&evex_byte3, 2, 1);
+                    
+                const ppbits: u2 = switch (evex.pp) {
+                    .p66 => 0b01,
+                    .pF3 => 0b10,
+                    .pF2 => 0b11,
+                    .none => 0
+                };
+
+                bits.setBit(&evex_byte3, 1, bits.getBit(ppbits, 1));
+                bits.setBit(&evex_byte3, 0, bits.getBit(ppbits, 0));
+                try self.bytes.append(self.allocator, evex_byte3);
+                switch(evex.L){
+                    .s256 => {
+                        bits.setBit(&evex_byte4, 5, 1);
+                    },
+                    .s512 => {
+                        bits.setBit(&evex_byte4, 6, 1);
+                    },
+                    else => {} 
+                }
+                bits.setBit(&evex_byte4, 3, bits.get_evex(vvvv));
+                if(modifier)|mod|{
+                    if(mod.mask)|mask|{
+                        bits.setBit(&evex_byte4, 7, @intFromBool(mask.zero));
+                        bits.setBit(&evex_byte4, 2, bits.getBit(mask.reg, 2));
+                        bits.setBit(&evex_byte4, 1, bits.getBit(mask.reg, 1));
+                        bits.setBit(&evex_byte4, 0, bits.getBit(mask.reg, 0));
+                    }
+                    if(mod.rounding != .none){
+                        bits.setBit(&evex_byte4, 4, 1);
+                        switch (mod.rounding) {
+                            .rd => {
+                                bits.setBit(&evex_byte4, 5, 1);
+                            },
+                            .ru => {
+                                bits.setBit(&evex_byte4, 6, 1);
+                            },
+                            .rz => {
+                                bits.setBit(&evex_byte4, 5, 1);
+                                bits.setBit(&evex_byte4, 6, 1);
+                            },
+                            else => {}
+                        }
+                    }
+                }
+                try self.bytes.append(self.allocator, evex_byte4);
+            },
             .vex => |vex|{
                 if(vex.L == .s512){
                     return root.AsmError.s512InVex;
@@ -352,9 +464,6 @@ pub const Emitter = struct{
                 }
             },
             .none => {},
-            else => {
-                @panic("Unsupported encoding fix me!!!!");
-            }
         }
 
 
@@ -371,7 +480,8 @@ pub const Emitter = struct{
             .word => encoding.opcode.s16.?,
             .byte => encoding.opcode.s8.?,
         };
-
+                
+        var tupledisp: ?i8 = null;
         if(encoding.modr)|modr|{
             if(modr.rm == .none and modr.reg != .none){
                 return root.AsmError.ModrMisMatch;
@@ -416,6 +526,17 @@ pub const Emitter = struct{
                 if(modr.rm == .operand){
                     const op_rm = operands[modr.rm.operand];
                     if(op_rm == .Memory){
+                        if(encoding.prefix.prefix == .evex){
+                            const sval: i32 = switch (op_rm.Memory.scale) {
+                                .scale1 => 1,
+                                .scale2 => 2,
+                                .scale4 => 4,
+                                .scale8 => 8,
+                            };
+                            if( @mod(op_rm.Memory.displacement, sval) == 0){
+                                tupledisp = std.math.cast(i8, @divTrunc(op_rm.Memory.displacement, sval));
+                            }
+                        }
                         //Special cases were sib is required
                         if(op_rm.Memory.index != null or 
                             (op_rm.Memory.base != null and 
@@ -437,7 +558,7 @@ pub const Emitter = struct{
                         if(op_rm.Memory.base == null or op_rm.Memory.displacement == 0 and (op_rm.Memory.base != null and op_rm.Memory.base.?.encoding != root.Register.rbp.encoding)){
                             bits.setBit(&modr_bits, 7, 0);
                             bits.setBit(&modr_bits, 6, 0);
-                        }else if(std.math.cast(i8, op_rm.Memory.displacement) != null or (op_rm.Memory.base != null and std.math.cast(i8, op_rm.Memory.displacement) != null and op_rm.Memory.base.?.encoding == root.Register.rbp.encoding)){
+                        }else if((encoding.prefix.prefix == .evex and tupledisp != null and std.math.cast(i8, op_rm.Memory.displacement) != null) or tupledisp != null or (op_rm.Memory.base != null and std.math.cast(i8, op_rm.Memory.displacement) != null and op_rm.Memory.base.?.encoding == root.Register.rbp.encoding)){
                             bits.setBit(&modr_bits, 7, 0);
                             bits.setBit(&modr_bits, 6, 1);
                         }else{
@@ -507,13 +628,19 @@ pub const Emitter = struct{
                         }
                         try self.bytes.append(self.allocator, sib);
                     }
-                    if(mem.displacement >= 0 and mem.base == null){
+                    if(tupledisp)|disp|{
+                        try self.bytes.append(self.allocator, @bitCast(disp));
+                    }else if(mem.displacement >= 0 and mem.base == null){
                         for (0..4)|_|{
                             try self.bytes.append(self.allocator, 0);
                         }
-                    }else if(mem.displacement != 0 or (mem.base != null and mem.base.?.encoding == root.Register.rbp.encoding)){
-                        // Force displacement byte if its rsp stuff 
-                        if(std.math.cast(i8, mem.displacement))|v|{
+                    }else if((encoding.prefix.prefix == .evex and tupledisp == null) or mem.displacement != 0 or (mem.base != null and mem.base.?.encoding == root.Register.rbp.encoding)){
+                        // Force displacement byte if its rsp stuff
+                        if(encoding.prefix.prefix == .evex and tupledisp == null){
+                            for (std.mem.asBytes(&mem.displacement))|byte|{
+                                try self.bytes.append(self.allocator, byte);
+                            }
+                        }else if(std.math.cast(i8, mem.displacement))|v|{
                             try self.bytes.append(self.allocator, @bitCast(v));
                         }else{
                             // If it cannot fit into 8 bits used 32 bits instead 
@@ -627,11 +754,11 @@ pub const Emitter = struct{
     }
 
     /// Emits an instructions
-    pub fn emit(self: *Emitter, encodings: []const root.encoding.Encoding,  operands: []const root.operands.Operand) !void {
+    pub fn emit(self: *Emitter, encodings: []const root.encoding.Encoding,  operands: []const root.operands.Operand, modifier: ?root.operands.Modifier) !void {
         const start = self.bytes.items.len;
         for(encodings)|encoding|{
-            if(try Emitter.match(encoding, operands)){
-                try self.emitencoding(encoding, operands);
+            if(try Emitter.match(encoding, operands, modifier)){
+                try self.emitencoding(encoding, operands, modifier);
                 return;
             }
         }

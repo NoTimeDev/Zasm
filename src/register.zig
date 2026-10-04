@@ -5,7 +5,7 @@ pub const RegisterClass = enum{
     xmm,
     zmm,
     ymm,
-    x87
+    x87,
 };
 
 const Size = @import("root.zig").Size;
@@ -104,7 +104,6 @@ pub const Register = struct{
     pub const mm6 = Register{ .size = Size.qword, .encoding = 6, .class = .mmx };
     pub const mm7 = Register{ .size = Size.qword, .encoding = 7, .class = .mmx };
     
-    pub const st0 = Register{ .size = Size.tbyte, .encoding = 0, .class = .x87 };
     pub const st1 = Register{ .size = Size.tbyte, .encoding = 1, .class = .x87 };
     pub const st2 = Register{ .size = Size.tbyte, .encoding = 2, .class = .x87 };
     pub const st3 = Register{ .size = Size.tbyte, .encoding = 3, .class = .x87 };
@@ -112,7 +111,6 @@ pub const Register = struct{
     pub const st5 = Register{ .size = Size.tbyte, .encoding = 5, .class = .x87 };
     pub const st6 = Register{ .size = Size.tbyte, .encoding = 6, .class = .x87 };
     pub const st7 = Register{ .size = Size.tbyte, .encoding = 7, .class = .x87 };
-
     
     pub const xmm0  = Register{ .size = Size.oword, .encoding = 0,  .class = .xmm };
     pub const xmm1  = Register{ .size = Size.oword, .encoding = 1,  .class = .xmm };
